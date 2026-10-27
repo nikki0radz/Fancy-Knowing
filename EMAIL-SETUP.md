@@ -1,5 +1,7 @@
 # Fancy Knowing · Email sign-in and password recovery
 
+**Want to send from Gmail without Resend or a custom domain? Follow [GMAIL-SETUP.md](GMAIL-SETUP.md) instead. Only the app owner configures the sender. Recipients use the normal welcome/reset-email flow.**
+
 Version 0.3.0 adds email sign-in, name/interests onboarding, custom-topic validation, and password recovery. The existing deployment applies migration `0002_email_profiles.sql` automatically, keeping old accounts, saved questions and chats.
 
 ## Set up email delivery for practising

@@ -1,6 +1,7 @@
 import { fail, hash, DAY, validateSettings, localDay, grade } from './core.mjs';
 import { budget, dailyQuestion, chatReply } from './ai.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
+import { deliverPendingWelcomes } from './mail.mjs';
 import { SUBJECTS, approveTopic, updateProfile } from './profiles.mjs';
 async function body(request,limit=16000) {
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('Use JSON for this request.',415);
@@ -11,16 +12,16 @@ async function body(request,limit=16000) {
 async function questionFor(env,id){if(typeof id!=='string'||id.length>80)fail('Invalid question.');const row=await env.DB.prepare('SELECT * FROM questions WHERE id=?').bind(id).first();if(!row)fail('Question not found.',404);return row}
 async function latest(env,userId,questionId){return env.DB.prepare('SELECT * FROM attempts WHERE user_id=? AND question_id=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(userId,questionId).first()}
 function reveal(row,attempt=null,blind=false){const q=JSON.parse(row.data);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
-async function api(request,env){
+async function api(request,env,ctx){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.0',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env)});
+ if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env)});
  if(!env.DB)fail('The DB database binding is missing in Cloudflare.',503);
  if(!['GET','POST','PUT','DELETE'].includes(method))fail('Method not allowed.',405);
  if(method!=='GET'){
   const origin=request.headers.get('Origin');if(origin!==url.origin)fail('Open the app at its Cloudflare address before signing in.',403);
   if(request.headers.get('Sec-Fetch-Site')==='cross-site')fail('Cross-site request blocked.',403);
  }
- if(method==='POST'&&['/api/auth/signup','/api/auth/login'].includes(path))return signin(request,env,path,await body(request));
+ if(method==='POST'&&['/api/auth/signup','/api/auth/login'].includes(path))return signin(request,env,path,await body(request),ctx);
  if(method==='POST'&&path==='/api/auth/forgot-password')return forgotPassword(request,env,await body(request));
  if(method==='POST'&&path==='/api/auth/reset-password')return resetPassword(request,env,await body(request));
  if(method==='POST'&&path==='/api/auth/confirm-email')return confirmEmail(env,await body(request));
@@ -106,9 +107,9 @@ async function api(request,env){
  fail('Not found.',404);
 }
 export default {
- async fetch(request,env){
+ async fetch(request,env,ctx){
   try{
-   if(new URL(request.url).pathname.startsWith('/api/'))return await api(request,env);
+   if(new URL(request.url).pathname.startsWith('/api/'))return await api(request,env,ctx);
    if(!env.ASSETS)return new Response('Fancy Knowing assets are not built yet.',{status:503});
    const response=await env.ASSETS.fetch(request),headers=new Headers(response.headers);
    headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');headers.set('X-Frame-Options','DENY');
@@ -118,7 +119,9 @@ export default {
  },
  async scheduled(event,env,ctx){
   ctx.waitUntil((async()=>{
-   if(!env.DB||!env.OPENAI_API_KEY)return;
+   if(!env.DB)return;
+   await deliverPendingWelcomes(env);
+   if(!env.OPENAI_API_KEY||new Date(event.scheduledTime).getUTCHours()!==3)return;
    await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM email_tokens WHERE expires_at<? OR used_at IS NOT NULL').bind(Date.now())]);
    const users=await env.DB.prepare('SELECT profile,settings FROM users ORDER BY created_at LIMIT 20').all();
    const profiles=users.results.length?users.results:[{profile:'{}',settings:'{}'}];

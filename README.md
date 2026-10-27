@@ -20,7 +20,7 @@ First create the D1 database, then insert its Database ID into `wrangler.jsonc`.
 - Concise live follow-up chat, saved per account and question.
 - Persistent answer attempts, saved bank, history, blind review and review due dates.
 - Two-step name and interest setup, pill-grid subjects and AI-validated custom topics.
-- Email reset links and confirmed email migration for existing username accounts.
+- Automatic welcome emails, email reset links and confirmed email migration for existing username accounts.
 - Separate Design, Notifications, Question preferences and My account settings.
 - Solid mustard accent, light/dark slider, hue-wheel palettes, six bundled font previews and text-size controls.
 - Account profile pictures and persistent notification time/frequency preferences.
@@ -29,9 +29,9 @@ First create the D1 database, then insert its Database ID into `wrangler.jsonc`.
 
 ## Still to do
 
-The connected app runs at https://fancy-knowing.nikki0radz.workers.dev. The older ChatGPT-hosted URL remains the static prototype. Password recovery additionally requires Resend email delivery; see [EMAIL-SETUP.md](EMAIL-SETUP.md).
+The connected app runs at https://fancy-knowing.nikki0radz.workers.dev. The older ChatGPT-hosted URL remains the static prototype. Email delivery can use your Gmail via Google Apps Script ([GMAIL-SETUP.md](GMAIL-SETUP.md)) or Resend; see [EMAIL-SETUP.md](EMAIL-SETUP.md).
 
-Android APK and notification delivery are not implemented in this commit. Reminder time is stored only. Password recovery and email changes need Resend settings; see EMAIL-SETUP.md. AI citations and checks reduce factual errors but do not make the content infallible.
+Android APK and notification delivery are not implemented in this commit. Reminder time is stored only. Welcome emails, recovery and email changes need a configured sender; see EMAIL-SETUP.md. AI citations and checks reduce factual errors but do not make the content infallible.
 
 ## Development
 

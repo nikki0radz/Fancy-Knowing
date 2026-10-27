@@ -1,6 +1,6 @@
 {
   "name": "fancy-knowing",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "deploy": "npm run build && node scripts/check-deploy.mjs && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "db:local": "wrangler d1 migrations apply DB --local",
     "db:remote": "wrangler d1 migrations apply DB --remote",
-    "test": "node --test tests/core.test.mjs tests/integration.test.mjs"
+    "test": "node --test tests/core.test.mjs tests/integration.test.mjs tests/google-email.test.mjs"
   },
   "devDependencies": {
     "wrangler": "4.152.0",
