@@ -23,7 +23,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts','quiz_comments'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
