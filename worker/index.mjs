@@ -18,10 +18,12 @@ async function databaseStatus(env){
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
   const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox'];
-  if(required.some(name=>!names.has(name)))return {databaseReady:false,databaseIssue:'migrations_missing'};
+  const missingTables=required.filter(name=>!names.has(name));
+  if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
   const fields=new Set(columns.results.map(r=>r.name));
-  if(['email','email_verified_at','profile','avatar'].some(name=>!fields.has(name)))return {databaseReady:false,databaseIssue:'migrations_missing'};
+  const missingColumns=['email','email_verified_at','profile','avatar'].filter(name=>!fields.has(name));
+  if(missingColumns.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingColumns};
   return {databaseReady:true};
  }catch{return {databaseReady:false,databaseIssue:'database_unavailable'}}
 }
