@@ -268,3 +268,14 @@ test('reminder periods persist per account and schedule each daily question insi
  const other=await login('mum@example.com','another-test-password');assert.equal((await call('/me',{cookie:other.cookie})).data.user.settings.notificationPeriod,undefined);
  assert.equal((await call('/settings',{method:'PUT',cookie,body:{notificationPeriod:'bad'}})).status,400);
 });
+test('each question can have its own reminder, and unconfigured questions receive no automatic extra notification',async()=>{
+ const account=await login('nicole@example.com','x'),cookie=account.cookie;
+ const saved=await call('/settings',{method:'PUT',cookie,body:{dailyAmount:3,reminders:[{mode:'fixed',time:'09:00'},{mode:'period',period:'evening'}],notificationsEnabled:true}});assert.equal(saved.status,200);
+ let schedule=await call('/notification-schedule',{cookie});assert.equal(schedule.data.configuredCount,2);assert.equal(schedule.data.questionCount,3);assert.equal(schedule.data.items.length,2);assert.equal(schedule.data.items[0].time,'09:00');assert.ok(schedule.data.items[1].time>='18:00'&&schedule.data.items[1].time<'22:00');assert.deepEqual(schedule.data.items.map(item=>item.slot),[0,1]);
+ const before=(await call('/me',{cookie})).data.user.settings.reminders;
+ await call('/settings',{method:'PUT',cookie,body:{notificationsEnabled:false}});const disabled=await call('/notification-schedule',{cookie});assert.equal(disabled.data.configuredCount,2);assert.deepEqual(disabled.data.times,[]);await call('/settings',{method:'PUT',cookie,body:{notificationsEnabled:true}});
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{dailyAmount:1}})).status,400);assert.deepEqual((await call('/me',{cookie})).data.user.settings.reminders,before);
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{dailyAmount:1,reminders:[{mode:'fixed',time:'10:00'}]}})).status,200);
+ schedule=await call('/notification-schedule',{cookie});assert.deepEqual(schedule.data.times,['10:00']);assert.equal(schedule.data.questionCount,1);
+ const other=await login('mum@example.com','another-test-password');assert.equal((await call('/me',{cookie:other.cookie})).data.user.settings.reminders,undefined);
+});

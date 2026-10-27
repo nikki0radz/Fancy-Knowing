@@ -78,3 +78,13 @@ test('day-period reminders choose distinct random times inside the selected peri
  }
  assert.throws(()=>validateSettings({notificationPeriod:'sometime'}));assert.equal(validateSettings({notificationMode:'period'}).notificationMode,'period');
 });
+test('individual reminder rows support mixed modes, partial schedules and distinct times',async()=>{
+ const {notificationTimes,validateNotificationWindow}=await import('../worker/core.mjs');
+ const reminders=[{mode:'fixed',time:'09:00'},{mode:'period',period:'evening'},{mode:'random',start:'12:00',end:'14:00'}];
+ const settings={dailyAmount:4,reminders:validateSettings({reminders}).reminders};validateNotificationWindow(settings);
+ const times=await notificationTimes(settings,'2026-10-27','individual-user');assert.equal(times.length,3);assert.equal(times[0],'09:00');assert.ok(times[1]>='18:00'&&times[1]<'22:00');assert.ok(times[2]>='12:00'&&times[2]<'14:00');assert.deepEqual(await notificationTimes(settings,'2026-10-27','individual-user'),times);
+ for(const invalid of [[],Array.from({length:11},()=>({mode:'fixed'})),[{mode:'unknown'}],[{mode:'fixed',time:'99:00'}],[{mode:'period',period:'lunch'}],[{mode:'random',start:'17:00',end:'09:00'}],[{mode:'fixed',time:'09:00'},{mode:'fixed',time:'09:00'}]])assert.throws(()=>validateSettings({reminders:invalid}));
+ assert.throws(()=>validateNotificationWindow({...settings,dailyAmount:1}));
+ const overlapping={dailyAmount:3,reminders:validateSettings({reminders:[{mode:'random',start:'09:00',end:'09:03'},{mode:'fixed',time:'09:00'},{mode:'random',start:'09:00',end:'09:03'}]}).reminders};
+ assert.equal(new Set(await notificationTimes(overlapping,'2026-10-27','overlap-user')).size,3);
+});
