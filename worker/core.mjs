@@ -22,13 +22,17 @@ export function validateSettings(value) {
  if ('theme' in value) { if (!['light','dark'].includes(value.theme)) fail('Invalid theme.'); output.theme = value.theme; }
  if ('time' in value) { if (typeof value.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) fail('Invalid reminder time.'); output.time = value.time; }
  if ('timezone' in value) { try { new Intl.DateTimeFormat('en-GB', {timeZone:value.timezone}).format(); } catch { fail('Invalid time zone.'); } output.timezone = String(value.timezone); }
+ for(const key of ['accentDark','accentLight','backgroundDark','backgroundLight'])if(key in value){if(typeof value[key]!=='string'||!/^#[a-f0-9]{6}$/i.test(value[key]))fail('Choose a valid colour.');output[key]=value[key].toLowerCase()}
+ if('font' in value){if(!['clean','typewriter','classic','script','gothic','handwritten'].includes(value.font))fail('Choose an available font.');output.font=value.font}
+ for(const [key,min,max] of [['fontSize',75,160],['dailyAmount',1,10],['answerCount',2,10]])if(key in value){if(!Number.isInteger(value[key])||value[key]<min||value[key]>max)fail('Invalid '+key+' setting.');output[key]=value[key]}
+ if('notificationsEnabled' in value){if(typeof value.notificationsEnabled!=='boolean')fail('Invalid notification setting.');output.notificationsEnabled=value.notificationsEnabled}
  return output;
 }
 export function localDay(timezone = 'Europe/London', date = new Date()) { return new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date); }
-export function validateQuestion(q, citedUrls) {
+export function validateQuestion(q, citedUrls, expectedCount) {
  if (!q || typeof q !== 'object') fail('The question could not be checked. Try again.', 502);
  for(const k of ['topic','q','explanation','concept','source']) if(typeof q[k] !== 'string' || !q[k].trim() || q[k].length > (k==='explanation'?600:300)) fail('The question could not be checked. Try again.',502);
- if (!Array.isArray(q.options) || q.options.length!==4 || q.options.some(o=>typeof o!=='string'||!o.trim()||o.length>100) || new Set(q.options.map(normalize)).size!==4 || !Number.isInteger(q.correct)||q.correct<0||q.correct>3) fail('The question could not be checked. Try again.',502);
+ if (!Array.isArray(q.options) || q.options.length<2 || q.options.length>10 || (expectedCount!==undefined&&q.options.length!==expectedCount) || q.options.some(o=>typeof o!=='string'||!o.trim()||o.length>100) || new Set(q.options.map(normalize)).size!==q.options.length || !Number.isInteger(q.correct)||q.correct<0||q.correct>=q.options.length) fail('The question could not be checked. Try again.',502);
  if(!Array.isArray(q.aliases)||q.aliases.some(a=>typeof a!=='string'||a.length>100)||q.aliases.length>10)fail('Invalid answer aliases.',502);
  if(!Array.isArray(q.follow)||q.follow.length!==3||q.follow.some(f=>typeof f!=='string'||!f.trim()||f.length>120)||new Set(q.follow.map(normalize)).size!==3)fail('Invalid follow-up questions.',502);
  if (!citedUrls.includes(q.source) || !q.source.startsWith('https://')) fail('The source could not be checked. Try again.',502);
@@ -39,7 +43,7 @@ export function grade(q, body) {
  const typed = body.typed.trim(); if(!typed || typed.length>150)fail('Type a short answer.');
  return {typed, choice:null, correct:[q.options[q.correct],...(q.aliases||[])].some(s=>normalize(s)===normalize(typed))};
  }
- if(!Number.isInteger(body.choice)||body.choice<0||body.choice>3)fail('Choose an answer.');
+ if(!Number.isInteger(body.choice)||body.choice<0||body.choice>=q.options.length)fail('Choose an answer.');
  return {typed:null,choice:body.choice,correct:body.choice===q.correct};
 }
 export function responseText(data) { return (data.output||[]).filter(i=>i.type==='message').flatMap(i=>i.content||[]).filter(c=>c.type==='output_text').map(c=>c.text).join('\n'); }

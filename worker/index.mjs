@@ -2,10 +2,10 @@ import { fail, hash, DAY, validateSettings, localDay, grade } from './core.mjs';
 import { budget, dailyQuestion, chatReply } from './ai.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
 import { SUBJECTS, approveTopic, updateProfile } from './profiles.mjs';
-async function body(request) {
+async function body(request,limit=16000) {
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('Use JSON for this request.',415);
  const reader=request.body?.getReader();if(!reader)fail('Missing request body.');let size=0,chunks=[];
- while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>16000){await reader.cancel();fail('This request is too large.',413)}chunks.push(value)}
+ while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();fail('This request is too large.',413)}chunks.push(value)}
  const bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length}try{const value=JSON.parse(new TextDecoder().decode(bytes));if(!value||typeof value!=='object'||Array.isArray(value))fail('Invalid request.');return value}catch{fail('Invalid request.',400)}
 }
 async function questionFor(env,id){if(typeof id!=='string'||id.length>80)fail('Invalid question.');const row=await env.DB.prepare('SELECT * FROM questions WHERE id=?').bind(id).first();if(!row)fail('Question not found.',404);return row}
@@ -13,7 +13,7 @@ async function latest(env,userId,questionId){return env.DB.prepare('SELECT * FRO
 function reveal(row,attempt=null,blind=false){const q=JSON.parse(row.data);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
 async function api(request,env){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.3.0',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env)});
+ if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.0',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env)});
  if(!env.DB)fail('The DB database binding is missing in Cloudflare.',503);
  if(!['GET','POST','PUT','DELETE'].includes(method))fail('Method not allowed.',405);
  if(method!=='GET'){
@@ -33,6 +33,18 @@ async function api(request,env){
  if(method==='GET'&&path==='/api/topics'){const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? ORDER BY created_at').bind(user.id).all();return json({subjects:SUBJECTS,custom:custom.results.map(r=>r.topic)})}
  if(method==='POST'&&path==='/api/topics')return json(await approveTopic(env,user,(await body(request)).topic));
  if(method==='PUT'&&path==='/api/profile')return json(await updateProfile(env,user,await body(request)));
+ if((method==='PUT'||method==='DELETE')&&path==='/api/avatar'){
+  let avatar=null;
+  if(method==='PUT'){
+   const input=await body(request,100000);avatar=input.avatar;
+   if(typeof avatar!=='string'||avatar.length>70000||!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar))fail('Choose a small JPG, PNG or WebP image.');
+   let bytes;try{bytes=Uint8Array.from(atob(avatar.split(',')[1]),c=>c.charCodeAt(0))}catch{fail('That image could not be read.')}
+   const mime=avatar.slice(11,avatar.indexOf(';'));
+   const valid=mime==='jpeg'?bytes[0]===255&&bytes[1]===216&&bytes[2]===255:mime==='png'?[137,80,78,71,13,10,26,10].every((b,i)=>bytes[i]===b):String.fromCharCode(...bytes.slice(0,4))==='RIFF'&&String.fromCharCode(...bytes.slice(8,12))==='WEBP';
+   if(!valid||bytes.length>50000)fail('That image could not be read. Try another picture.');
+  }
+  await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatar,user.id).run();return json({avatar});
+ }
  if(method==='PUT'&&path==='/api/settings'){
   const settings={...JSON.parse(user.settings),...validateSettings(await body(request))};await env.DB.prepare('UPDATE users SET settings=? WHERE id=?').bind(JSON.stringify(settings),user.id).run();return json({settings});
  }
@@ -42,7 +54,7 @@ async function api(request,env){
   let row=assignment;
   if(!row){
    const profile=JSON.parse(user.profile||'{}');
-   row=await dailyQuestion(env,day,profile.interests||[]);
+   row=await dailyQuestion(env,day,profile.interests||[],JSON.parse(user.settings).answerCount||4);
    await env.DB.prepare('INSERT INTO daily_assignments(user_id,day,question_id) VALUES (?,?,?) ON CONFLICT(user_id,day) DO NOTHING').bind(user.id,day,row.id).run();
    row=await env.DB.prepare('SELECT q.* FROM daily_assignments a JOIN questions q ON q.id=a.question_id WHERE a.user_id=? AND a.day=?').bind(user.id,day).first();
   }
@@ -110,7 +122,7 @@ export default {
    await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM email_tokens WHERE expires_at<? OR used_at IS NOT NULL').bind(Date.now())]);
    const users=await env.DB.prepare('SELECT profile,settings FROM users ORDER BY created_at LIMIT 20').all();
    const profiles=users.results.length?users.results:[{profile:'{}',settings:'{}'}];
-   for(const u of profiles)for(const offset of [0,1])try{await dailyQuestion(env,localDay(JSON.parse(u.settings).timezone||'Europe/London',new Date(Date.now()+offset*DAY)),JSON.parse(u.profile||'{}').interests||[])}catch(e){console.error('Scheduled question failed',e.status||500)}
+   for(const u of profiles)for(const offset of [0,1])try{await dailyQuestion(env,localDay(JSON.parse(u.settings).timezone||'Europe/London',new Date(Date.now()+offset*DAY)),JSON.parse(u.profile||'{}').interests||[],JSON.parse(u.settings).answerCount||4)}catch(e){console.error('Scheduled question failed',e.status||500)}
   })());
  }
 };

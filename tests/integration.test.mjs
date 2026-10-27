@@ -15,7 +15,7 @@ before(async()=>{
   return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'Its gills take oxygen out of the water.'}]}]})};
   return new Response('Unexpected outbound request',{status:500});
  }}));
- db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
+ db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
  await db.batch(schema.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const q={topic:'Nature',q:'How many hearts does an octopus have?',options:['One','Two','Three','Four'],correct:2,explanation:'Three. Two serve its gills.',source:'https://www.nhm.ac.uk/',aliases:['3'],concept:'octopus-hearts',follow:['What do its gills do?','Why is its blood blue?','Do the hearts do the same job?']};
@@ -109,4 +109,20 @@ test('daily questions use a selected niche, cache by subject and do not include 
  const generated={topic:'Marine biology',q:'What do shark gills extract from water?',options:['Oxygen','Sand','Salt','Light'],correct:0,explanation:'Gills take dissolved oxygen from the water.',source:'https://ocean.si.edu/ocean-life/sharks-rays',aliases:[],concept:'shark-gill-oxygen',follow:['How do gills work?','Do sharks have lungs?','What is dissolved oxygen?']};
  globalThis.fetch=async(url,options)=>{const request=JSON.parse(options.body);calls++;if(request.tools)assert.ok(request.input.includes(topic));return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:request.tools?'Shark gills take oxygen from the water.':JSON.stringify(generated),annotations:request.tools?[{type:'url_citation',url:generated.source}]:[]}]}]})};
  try{const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test-key'},'2099-01-03',[topic]);assert.ok(row.day.startsWith('2099-01-03:'));assert.equal(JSON.parse(row.data).topic,'Marine biology');const again=await dailyQuestion({DB:db,OPENAI_API_KEY:'test-key'},'2099-01-03',[topic]);assert.equal(again.id,row.id);assert.equal(calls,2)}finally{globalThis.fetch=originalFetch}
+});
+test('design, frequency and question-count settings persist per account; avatars validate and stay private',async()=>{
+ const account=await login('nicole@example.com','x'),cookie=account.cookie;
+ const saved=await call('/settings',{method:'PUT',cookie,body:{font:'classic',fontSize:130,accentDark:'#d8ac47',backgroundDark:'#141414',dailyAmount:4,answerCount:10,notificationsEnabled:false}});assert.equal(saved.status,200);assert.equal(saved.data.settings.answerCount,10);assert.equal((await call('/me',{cookie})).data.user.settings.dailyAmount,4);
+ assert.equal((await call('/today',{cookie})).data.question.options.length,4);
+ const mum=await login('mum@example.com','another-test-password');assert.equal((await call('/me',{cookie:mum.cookie})).data.user.settings.answerCount,undefined);
+ assert.equal((await call('/avatar',{method:'PUT',cookie,body:{avatar:'data:image/svg+xml;base64,PHN2Zz4='}})).status,400);
+ assert.equal((await call('/avatar',{method:'PUT',cookie,body:{avatar:'data:image/jpeg;base64,YmFk'}})).status,400);
+ const avatar='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1EAAAAASUVORK5CYII=';
+ assert.equal((await call('/avatar',{method:'PUT',cookie,body:{avatar}})).status,200);assert.equal((await call('/me',{cookie})).data.user.avatar,avatar);assert.equal((await call('/me',{cookie:mum.cookie})).data.user.avatar,null);
+ assert.equal((await call('/avatar',{method:'DELETE',cookie})).status,200);assert.equal((await call('/me',{cookie})).data.user.avatar,null);
+});
+test('AI generation requests the selected number of choices and API grading accepts the tenth choice',async()=>{
+ const {dailyQuestion}=await import('../worker/ai.mjs');const originalFetch=globalThis.fetch;let count=2;
+ globalThis.fetch=async(url,options)=>{const request=JSON.parse(options.body);if(!request.tools){assert.equal(request.text.format.schema.properties.options.minItems,count);assert.equal(request.text.format.schema.properties.correct.maximum,count-1)}const q={topic:'Numbers',q:`Which option is number ${count}?`,options:Array.from({length:count},(_,i)=>String(i+1)),correct:count-1,explanation:`It is ${count}.`,source:'https://example.org/number',aliases:[],concept:`number-${count}-options`,follow:['Why?','How?','Where?']};return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:request.tools?'Evidence for the fact.':JSON.stringify(q),annotations:request.tools?[{type:'url_citation',url:q.source}]:[]}]}]})};
+ try{for(count of [2,10]){const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test-key'},'2099-02-01',[],count);assert.equal(JSON.parse(row.data).options.length,count);if(count===10){const signed=await login('nicole@example.com','x');const answer=await call(`/questions/${row.id}/answer`,{method:'POST',cookie:signed.cookie,body:{choice:9,attemptId:crypto.randomUUID()}});assert.equal(answer.status,200);assert.equal(answer.data.question.attempt.correct,true)}}}finally{globalThis.fetch=originalFetch}
 });

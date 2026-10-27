@@ -21,7 +21,10 @@ First create the D1 database, then insert its Database ID into `wrangler.jsonc`.
 - Persistent answer attempts, saved bank, history, blind review and review due dates.
 - Two-step name and interest setup, pill-grid subjects and AI-validated custom topics.
 - Email reset links and confirmed email migration for existing username accounts.
-- Light/dark mode and saved reminder time.
+- Separate Design, Notifications, Question preferences and My account settings.
+- Solid mustard accent, light/dark slider, hue-wheel palettes, six bundled font previews and text-size controls.
+- Account profile pictures and persistent notification time/frequency preferences.
+- New questions support 2–10 choices (default 4); existing questions retain their original options.
 - Per-user API budgets, signup/login limits, origin checks and server-side data ownership.
 
 ## Still to do

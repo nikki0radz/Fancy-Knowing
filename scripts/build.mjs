@@ -1,4 +1,5 @@
-import { mkdir, copyFile } from 'node:fs/promises';
+import { mkdir, copyFile, cp } from 'node:fs/promises';
 await mkdir('public', { recursive: true });
-for (const f of ['index.html', 'app.js']) await copyFile(f, `public/${f}`);
+for (const f of ['index.html', 'app.js', 'design.js']) await copyFile(f, `public/${f}`);
+await cp('fonts', 'public/fonts', {recursive:true});
 console.log('Built Fancy Knowing assets.');

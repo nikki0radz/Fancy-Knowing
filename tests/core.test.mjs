@@ -26,3 +26,11 @@ test('email addresses normalise case; simple passwords remain allowed',async()=>
  for(const value of ['not-an-email','a@b','a b@example.com','a..b@example.com',null])assert.throws(()=>email(value));
  assert.equal(password('a'),'a');assert.throws(()=>password(''));
 });
+test('design and notification preferences validate ranges and reject CSS injection',()=>{
+ const settings={font:'handwritten',fontSize:125,accentDark:'#d8ac47',backgroundDark:'#101426',answerCount:10,dailyAmount:3,notificationsEnabled:false};assert.deepEqual(validateSettings(settings),settings);
+ for(const input of [{font:'unknown'},{fontSize:900},{accentDark:'red;display:none'},{dailyAmount:0},{dailyAmount:11},{answerCount:1},{answerCount:11},{notificationsEnabled:'yes'}])assert.throws(()=>validateSettings(input));
+});
+test('question marking supports 2 through 10 choices and rejects mismatched generated counts',()=>{
+ const base={topic:'Numbers',q:'Which number is ten?',explanation:'Ten is 10.',concept:'ten',source:'https://example.org',aliases:[],follow:['Why?','How?','Where?']};
+ for(const n of [2,10]){const q={...base,options:Array.from({length:n},(_,i)=>String(i)),correct:n-1};assert.equal(validateQuestion(q,[q.source],n),q);assert.equal(grade(q,{choice:n-1}).correct,true);assert.throws(()=>grade(q,{choice:n}));assert.throws(()=>validateQuestion(q,[q.source],n===2?10:2))}
+});
