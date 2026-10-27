@@ -261,3 +261,10 @@ test('a failed memory check never serves an unchecked question or leaves its loc
  globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(url.endsWith('/embeddings'))return Response.json({error:'unavailable'},{status:503});if(body.tools)return aiText('Fixture quiz and evidence.',[triviaUrl,source]);return aiText({topic:'History',q:'Which fixture is it?',options:['One','Two'],correct:0,explanation:'Fixture.',concept:'unchecked-failure',subtopic:'failure-fixture',source,triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']})};
  try{await assert.rejects(()=>dailyQuestion({DB:db,OPENAI_API_KEY:'test'},'2099-04-03',[],2),/memory connection/);assert.equal(await db.prepare("SELECT id FROM questions WHERE concept='unchecked-failure'").first(),null);assert.equal(await db.prepare('SELECT key FROM locks WHERE key=?').bind('generate:2099-04-03:answers-2').first(),null)}finally{globalThis.fetch=originalFetch}
 });
+test('reminder periods persist per account and schedule each daily question inside that period',async()=>{
+ const owner=await login('nicole@example.com','x'),cookie=owner.cookie;
+ const saved=await call('/settings',{method:'PUT',cookie,body:{notificationMode:'period',notificationPeriod:'evening',dailyAmount:3,notificationsEnabled:true}});assert.equal(saved.status,200);assert.equal(saved.data.settings.notificationPeriod,'evening');assert.equal((await call('/me',{cookie})).data.user.settings.notificationMode,'period');
+ const schedule=await call('/notification-schedule',{cookie});assert.equal(schedule.data.items.length,3);assert.ok(schedule.data.times.every(time=>time>='18:00'&&time<'22:00'));assert.equal(new Set(schedule.data.items.map(item=>item.slot)).size,3);
+ const other=await login('mum@example.com','another-test-password');assert.equal((await call('/me',{cookie:other.cookie})).data.user.settings.notificationPeriod,undefined);
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{notificationPeriod:'bad'}})).status,400);
+});

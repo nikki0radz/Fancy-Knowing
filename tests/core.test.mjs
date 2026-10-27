@@ -68,3 +68,13 @@ test('subject selection balances a long history and keeps the two-to-one mixed p
 test('answer aliases cannot make a second option correct',()=>{
  const q={topic:'Science',q:'Which element?',options:['Oxygen','Gold','Iron','Helium'],correct:0,explanation:'Oxygen.',concept:'oxygen-fact',aliases:['Gold'],follow:['Why?','Where?','How?'],source:'https://example.org'};assert.throws(()=>validateQuestion(q,[q.source]),/overlap/);
 });
+test('day-period reminders choose distinct random times inside the selected period',async()=>{
+ const {DAY_PERIODS,notificationTimes}=await import('../worker/core.mjs');
+ for(const [notificationPeriod,[start,end]] of Object.entries(DAY_PERIODS)){
+  const settings={notificationMode:'period',notificationPeriod,dailyAmount:10};assert.equal(validateSettings(settings).notificationPeriod,notificationPeriod);
+  const times=await notificationTimes(settings,'2026-10-27','period-user');assert.equal(times.length,10);assert.equal(new Set(times).size,10);
+  assert.ok(times.every(time=>{const [h,m]=time.split(':').map(Number),minute=h*60+m;return minute>=start&&minute<end}));
+  assert.deepEqual(await notificationTimes(settings,'2026-10-27','period-user'),times);
+ }
+ assert.throws(()=>validateSettings({notificationPeriod:'sometime'}));assert.equal(validateSettings({notificationMode:'period'}).notificationMode,'period');
+});

@@ -21,7 +21,8 @@ export function validateSettings(value) {
  const output = {};
  if ('theme' in value) { if (!['light','dark'].includes(value.theme)) fail('Invalid theme.'); output.theme = value.theme; }
  if ('time' in value) { if (typeof value.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) fail('Invalid reminder time.'); output.time = value.time; }
- if('notificationMode' in value){if(!['fixed','random'].includes(value.notificationMode))fail('Choose a set time or random times.');output.notificationMode=value.notificationMode}
+ if('notificationMode' in value){if(!['fixed','random','period'].includes(value.notificationMode))fail('Choose whenever, a set time or part of the day.');output.notificationMode=value.notificationMode}
+ if('notificationPeriod' in value){if(!Object.hasOwn(DAY_PERIODS,value.notificationPeriod))fail('Choose an available part of the day.');output.notificationPeriod=value.notificationPeriod}
  for(const key of ['randomStart','randomEnd'])if(key in value){if(typeof value[key]!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(value[key]))fail('Choose a valid notification window.');output[key]=value[key]}
  if ('timezone' in value) { try { new Intl.DateTimeFormat('en-GB', {timeZone:value.timezone}).format(); } catch { fail('Invalid time zone.'); } output.timezone = String(value.timezone); }
  for(const key of ['accentDark','accentLight','backgroundDark','backgroundLight'])if(key in value){if(typeof value[key]!=='string'||!/^#[a-f0-9]{6}$/i.test(value[key]))fail('Choose a valid colour.');output[key]=value[key].toLowerCase()}
@@ -30,16 +31,18 @@ export function validateSettings(value) {
  if('notificationsEnabled' in value){if(typeof value.notificationsEnabled!=='boolean')fail('Invalid notification setting.');output.notificationsEnabled=value.notificationsEnabled}
  return output;
 }
-export function validateNotificationWindow(settings){if(settings.notificationMode!=='random'&&1440-timeMinutes(settings.time||'08:00')<(settings.dailyAmount||1))fail('Choose an earlier first time to fit all your daily notifications.');if((settings.randomStart||'08:00')>=(settings.randomEnd||'21:00'))fail('The end of the random window must be later than its start.');if(timeMinutes(settings.randomEnd||'21:00')-timeMinutes(settings.randomStart||'08:00')<(settings.dailyAmount||1))fail('Make the random window at least as many minutes as your daily notifications.');return settings}
+export function validateNotificationWindow(settings){if(!['random','period'].includes(settings.notificationMode)&&1440-timeMinutes(settings.time||'08:00')<(settings.dailyAmount||1))fail('Choose an earlier first time to fit all your daily notifications.');if((settings.randomStart||'08:00')>=(settings.randomEnd||'21:00'))fail('The end of the random window must be later than its start.');if(timeMinutes(settings.randomEnd||'21:00')-timeMinutes(settings.randomStart||'08:00')<(settings.dailyAmount||1))fail('Make the random window at least as many minutes as your daily notifications.');return settings}
 const timeMinutes=value=>Number(value.slice(0,2))*60+Number(value.slice(3));
+export const DAY_PERIODS={morning:[360,720],midday:[720,840],afternoon:[840,1080],evening:[1080,1320],night:[1320,1440]};
 export async function notificationTimes(settings,day,seed){
  if(settings.notificationsEnabled===false)return [];
- const count=settings.dailyAmount||1,start=timeMinutes(settings.notificationMode==='random'?(settings.randomStart||'08:00'):(settings.time||'08:00'));
- const end=settings.notificationMode==='random'?timeMinutes(settings.randomEnd||'21:00'):1440;
+ const count=settings.dailyAmount||1,period=settings.notificationMode==='period'?(DAY_PERIODS[settings.notificationPeriod]||DAY_PERIODS.morning):null,random=settings.notificationMode==='random'||!!period;
+ const start=period?period[0]:timeMinutes(settings.notificationMode==='random'?(settings.randomStart||'08:00'):(settings.time||'08:00'));
+ const end=period?period[1]:settings.notificationMode==='random'?timeMinutes(settings.randomEnd||'21:00'):1440;
  const slots=Math.min(count,end-start),result=[];
  for(let i=0;i<slots;i++){
   const low=start+Math.floor((end-start)*i/slots),high=start+Math.floor((end-start)*(i+1)/slots);
-  const minute=settings.notificationMode==='random'?low+parseInt((await hash(`${seed}:${day}:${i}`)).slice(0,8),16)%(high-low):low;
+  const minute=random?low+parseInt((await hash(`${seed}:${day}:${i}`)).slice(0,8),16)%(high-low):low;
   result.push(String(Math.floor(minute/60)).padStart(2,'0')+':'+String(minute%60).padStart(2,'0'));
  }
  return result;
