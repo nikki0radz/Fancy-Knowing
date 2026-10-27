@@ -96,3 +96,15 @@ test('notification slots are stable when another reminder is deleted and all rem
  for(const rows of [[{slot:1,mode:'fixed'},{slot:1,mode:'period'}],[{slot:-1,mode:'fixed'}],[{slot:10,mode:'fixed'}]])assert.throws(()=>validateSettings({reminders:rows}));
  assert.throws(()=>validateNotificationWindow({dailyAmount:2,reminders}));
 });
+
+test('day-part windows default to 8am, validate custom ranges and affect scheduled times',async()=>{
+ const {DAY_PERIODS,notificationTimes}=await import('../worker/core.mjs');assert.equal(DAY_PERIODS.morning[0],480);
+ assert.doesNotThrow(()=>validateSettings({reminders:[{mode:'period',period:'night',time:'09:00',start:'22:00',end:'24:00'}]}));
+ const patch=validateSettings({periodWindows:{afternoon:{start:'15:00',end:'16:00'},night:{start:'23:00',end:'24:00'}}});
+ for(const period of ['afternoon','night']){const settings={dailyAmount:2,...patch,reminders:[{slot:0,mode:'period',time:'09:00',period},{slot:1,mode:'period',time:'09:00',period}]};const times=await notificationTimes(settings,'2026-10-27','account');assert.equal(times.length,2);assert.notEqual(times[0],times[1]);for(const t of times)assert.ok(t>=(period==='night'?'23:00':'15:00')&&t<(period==='night'?'24:00':'16:00'))}
+ assert.throws(()=>validateSettings({periodWindows:{morning:{start:'12:00',end:'08:00'}}}));assert.throws(()=>validateSettings({periodWindows:{night:{start:'23:59',end:'24:00'}}}));assert.throws(()=>validateSettings({periodWindows:{nonsense:{start:'08:00',end:'12:00'}}}));
+});
+test('a mismatched generated answer index is rejected even when every option is valid',async()=>{
+ const {validateAnswerKey}=await import('../worker/core.mjs');const q={options:['Iron','Tungsten','Gold','Lead'],correct:2,correctAnswer:'Tungsten'};
+ assert.throws(()=>validateAnswerKey(q),/answer text/);assert.doesNotThrow(()=>validateAnswerKey({...q,correct:1}));
+});

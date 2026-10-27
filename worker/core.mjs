@@ -28,6 +28,7 @@ export function validateSettings(value) {
  for(const key of ['accentDark','accentLight','backgroundDark','backgroundLight'])if(key in value){if(typeof value[key]!=='string'||!/^#[a-f0-9]{6}$/i.test(value[key]))fail('Choose a valid colour.');output[key]=value[key].toLowerCase()}
  if('font' in value){if(!['clean','typewriter','classic','script','gothic','handwritten'].includes(value.font))fail('Choose an available font.');output.font=value.font}
  for(const [key,min,max] of [['fontSize',75,160],['dailyAmount',1,10],['answerCount',2,10]])if(key in value){if(!Number.isInteger(value[key])||value[key]<min||value[key]>max)fail('Invalid '+key+' setting.');output[key]=value[key]}
+ if('periodWindows' in value)output.periodWindows=validatePeriodWindows(value.periodWindows);
  if('reminders' in value)output.reminders=validateReminders(value.reminders);
  if('challengeAlerts' in value){if(typeof value.challengeAlerts!=='boolean')fail('Choose a valid challenge alert setting.');output.challengeAlerts=value.challengeAlerts}
  if('notificationsEnabled' in value){if(typeof value.notificationsEnabled!=='boolean')fail('Invalid notification setting.');output.notificationsEnabled=value.notificationsEnabled}
@@ -35,7 +36,16 @@ export function validateSettings(value) {
 }
 export function validateNotificationWindow(settings){if(Array.isArray(settings.reminders)){const reminders=validateReminders(settings.reminders);if(reminders.length>(settings.dailyAmount||1)||reminders.some(row=>row.slot>=(settings.dailyAmount||1)))fail('Add no more reminders than your daily questions.');return settings}if(!['random','period'].includes(settings.notificationMode)&&1440-timeMinutes(settings.time||'08:00')<(settings.dailyAmount||1))fail('Choose an earlier first time to fit all your daily notifications.');if((settings.randomStart||'08:00')>=(settings.randomEnd||'21:00'))fail('The end of the random window must be later than its start.');if(timeMinutes(settings.randomEnd||'21:00')-timeMinutes(settings.randomStart||'08:00')<(settings.dailyAmount||1))fail('Make the random window at least as many minutes as your daily notifications.');return settings}
 const timeMinutes=value=>Number(value.slice(0,2))*60+Number(value.slice(3));
-export const DAY_PERIODS={morning:[360,720],midday:[720,840],afternoon:[840,1080],evening:[1080,1320],night:[1320,1440]};
+export const DAY_PERIODS={morning:[480,720],midday:[720,840],afternoon:[840,1080],evening:[1080,1320],night:[1320,1440]};
+export function validatePeriodWindows(value){
+ if(!value||typeof value!=='object'||Array.isArray(value))fail('Choose valid time-of-day windows.');const output={};
+ for(const [key,row]of Object.entries(value)){
+  if(!Object.hasOwn(DAY_PERIODS,key)||!row||typeof row!=='object'||typeof row.start!=='string'||typeof row.end!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(row.start)||!/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/.test(row.end)||timeMinutes(row.start)>=timeMinutes(row.end)||timeMinutes(row.end)-timeMinutes(row.start)<10)fail('Use a time window of at least 10 minutes, ending after it starts.');output[key]={start:row.start,end:row.end};
+ }return output;
+}
+export function periodMinutes(settings,key){const row=settings.periodWindows?.[key];return row?[timeMinutes(row.start),timeMinutes(row.end)]:DAY_PERIODS[key]||DAY_PERIODS.morning}
+export function randomFriendUsername(){const a=['bright','curious','merry','cosmic','clever','sunny'],b=['otter','robin','panda','fox','owl','badger'];const bytes=crypto.getRandomValues(new Uint8Array(6));return a[bytes[0]%a.length]+'-'+b[bytes[1]%b.length]+'-'+Array.from(bytes.slice(2),n=>n.toString(16).padStart(2,'0')).join('')}
+export function validateAnswerKey(q){if(typeof q.correctAnswer!=='string'||q.correctAnswer!==q.options[q.correct])fail('The answer text does not match the marked option.',502);return q}
 export function validateReminders(value){
  if(!Array.isArray(value)||value.length>10)fail('Choose up to 10 notification times.');
  const validTime=time=>typeof time==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(time);
@@ -44,7 +54,7 @@ export function validateReminders(value){
   if(!item||typeof item!=='object'||Array.isArray(item)||!['fixed','random','period'].includes(item.mode))fail('Choose a valid reminder type.');
   const slot=item.slot??index;if(!Number.isInteger(slot)||slot<0||slot>9||slots.has(slot))fail('Choose one notification per question.');slots.add(slot);
   const row={slot,mode:item.mode,time:item.time??'09:00',start:item.start??'08:00',end:item.end??'21:00',period:item.period??'morning'};
-  if(![row.time,row.start,row.end].every(validTime)||!Object.hasOwn(DAY_PERIODS,row.period))fail('Choose valid notification times.');
+  if(![row.time,row.start].every(validTime)||!(validTime(row.end)||row.mode==='period'&&row.end==='24:00')||!Object.hasOwn(DAY_PERIODS,row.period))fail('Choose valid notification times.');
   if(row.mode==='random'&&(row.start>=row.end||timeMinutes(row.end)-timeMinutes(row.start)<value.length))fail('Choose a wider random time window, with the end later than the start.');
   if(row.mode==='fixed'){if(fixed.has(row.time))fail('Choose a different time for each question.');fixed.add(row.time)}
   return row;
@@ -55,7 +65,7 @@ async function individualNotificationTimes(settings,day,seed){
  for(let index=0;index<rows.length;index++){
   const row=rows[index];let minute=timeMinutes(row.time);
   if(row.mode!=='fixed'){
-   const [start,end]=row.mode==='period'?DAY_PERIODS[row.period]:[timeMinutes(row.start),timeMinutes(row.end)],width=end-start;
+   const [start,end]=row.mode==='period'?periodMinutes(settings,row.period):[timeMinutes(row.start),timeMinutes(row.end)],width=end-start;
    minute=start+parseInt((await hash(`${seed}:${day}:${row.slot??index}:reminder`)).slice(0,8),16)%width;
    let tries=0;while(used.has(minute)&&tries++<width)minute=start+(minute-start+1)%width;
    if(used.has(minute))fail('These reminder windows overlap too closely. Choose a wider window.');used.add(minute);
@@ -67,7 +77,7 @@ async function individualNotificationTimes(settings,day,seed){
 export async function notificationTimes(settings,day,seed){
  if(settings.notificationsEnabled===false)return [];
  if(Array.isArray(settings.reminders))return individualNotificationTimes(settings,day,seed);
- const count=settings.dailyAmount||1,period=settings.notificationMode==='period'?(DAY_PERIODS[settings.notificationPeriod]||DAY_PERIODS.morning):null,random=settings.notificationMode==='random'||!!period;
+ const count=settings.dailyAmount||1,period=settings.notificationMode==='period'?periodMinutes(settings,settings.notificationPeriod):null,random=settings.notificationMode==='random'||!!period;
  const start=period?period[0]:timeMinutes(settings.notificationMode==='random'?(settings.randomStart||'08:00'):(settings.time||'08:00'));
  const end=period?period[1]:settings.notificationMode==='random'?timeMinutes(settings.randomEnd||'21:00'):1440;
  const slots=Math.min(count,end-start),result=[];
