@@ -18,3 +18,24 @@
 .quiz-comment-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}
 .quiz-comment-actions small{color:var(--muted)}
 .comment-delete-confirm{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:.85em}
+
+/* Keep loading local to the question: no full-page snapshot or sliding layout. */
+.quiz-question-pane,#today .card{position:relative;isolation:isolate}
+.question-wait{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;padding:28px;text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:24px;color:var(--text)}
+#today .card .question-wait{background:var(--panel)}
+.question-wait strong{font-size:18px;line-height:1.4}
+.question-wait small{font-size:12px;color:var(--muted);line-height:1.5}
+.question-wait .loading-orbit{width:28px;height:28px}
+.question-arriving{animation:question-appear 160ms ease-out both}
+@keyframes question-appear{from{opacity:.55}to{opacity:1}}
+.quiz-question-pane,.quiz-result-hero{view-transition-name:none}
+#today>.loading,#gamePlay>.loading,#home>.loading{min-height:260px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:18px;text-align:center;padding:30px;color:var(--muted)}
+.flow-topic-status{margin:14px 0;min-height:24px;font-size:13px;color:var(--muted)}
+.flow-topic-status.checking{display:flex;align-items:center;gap:10px;padding:15px 0}
+.flow-approved-topic{display:flex;align-items:center;gap:14px;justify-content:space-between;border:1px solid color-mix(in srgb,var(--mint) 50%,var(--line));background:var(--panel);padding:16px;border-radius:17px}
+.flow-approved-topic>span{min-width:0}
+.flow-approved-topic small{color:var(--mint);display:block;font-size:11px;margin-bottom:8px}
+.flow-approved-topic strong{display:block;color:var(--text);font-size:15px;overflow-wrap:anywhere}
+.flow-approved-topic button{flex-shrink:0;padding:10px 12px;font-size:12px}
+.question-recall{display:block;margin:8px 0 24px;padding:10px 0;font-size:12px;text-decoration:underline;text-underline-offset:4px;border-radius:0;background:transparent!important}
+@media(prefers-reduced-motion:reduce){.question-arriving{animation:none}.question-wait .loading-orbit,.flow-topic-status .loading-orbit{animation:none}}

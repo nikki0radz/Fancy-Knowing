@@ -70,7 +70,7 @@ function renderGame(){
  else if(g.waiting){content=`<h1 class="play-heading">${other?'Their turn.':'Invite your friend.'}</h1><p class="intro">You’ve finished ${esc(g.topic)}. ${other?esc(other.name)+' can finish whenever they like.':'Share the link so your friend can take the same quiz.'}</p><div class="game-ticket"><strong>Your answers are saved.</strong><p>The winner and answers appear after both players finish.</p></div><button class="secondary-button" id="refreshgame">Check for results</button>`}
  else{const q=g.question;content=`<div class="quiz-question-pane"><div class="quiz-progress-track"><i style="width:${g.answered/g.count*100}%"></i></div><p class="play-progress">Question ${g.answered+1} of ${g.count} · ${g.manual?'Handmade quiz':esc(difficultyLabel(g.difficulty))}${g.timerSeconds?'<span id="quizclock" class="quiz-clock" aria-label="Time remaining"></span>':''}</p><h1 class="play-question">${esc(q.q)}</h1><span class="quiz-format">${formatLabel(q.format)}</span><div class="answers ${q.format==='multiple_choice'||!q.format?'':'binary-answers'}">${q.options.map((option,index)=>`<button class="answer" data-game-answer="${index}" ${gameAnswering?'disabled':''}><span class="letter">${String.fromCharCode(65+index)}</span>${esc(option)}</button>`).join('')}</div><p class="smallnote">${g.group?'Score first. If scores tie, the fastest total answer time wins.':g.kind==='challenge'?'Answers stay hidden until both players finish.':'Your results appear at the end.'}</p><p class="error" id="gameanswererror" role="alert"></p></div>`}
  const share=g.inviteUrl?`<div class="game-invite compact-invite"><strong>Guest link</strong><div class="guest-link-row"><input class="field" id="gameinviteurl" readonly aria-label="Quiz guest link" value="${esc(g.inviteUrl)}"><button class="icon-button" id="copygameinvite" aria-label="Copy guest link">${copyIcon}</button><button class="icon-button" id="sharegameinvite" aria-label="Share guest link">${shareIcon}</button></div><p class="smallnote" id="gameinvitestatus" role="status">Guests enter their name and play without an account.</p></div>`:'';
- $('#gamePlay').innerHTML=back+(g.isHost&&g.kind==='challenge'&&!g.roomClosed?'<button class="secondary-button add-game-people" id="addgamepeople">+ Add people to quiz</button>':'')+`<p class="quiz-author">Quiz by <strong>${esc(g.authorName||g.hostName||'A friend')}</strong>${g.authorIsYou?' · you':''}</p>`+content+(!g.complete?'<div id="roomboard">'+roomBoard(g)+'</div>':'')+share;bindRoomControls(g);bindQuizClock(g);
+ $('#gamePlay').innerHTML=back+(g.isHost&&g.kind==='challenge'&&!g.roomClosed?'<button class="secondary-button add-game-people" id="addgamepeople">+ Add people to quiz</button>':'')+`<p class="quiz-author">Quiz by <strong>${esc(g.authorName||g.hostName||'A friend')}</strong>${g.authorIsYou?' (you)':''}</p>`+content+(!g.complete?'<div id="roomboard">'+roomBoard(g)+'</div>':'')+share;bindRoomControls(g);bindQuizClock(g);
  if($('#invitesignin'))$('#invitesignin').onclick=()=>showAuth();
  if($('#gamehome'))$('#gamehome').onclick=()=>appBack(loadHome);if($('#refreshgame'))$('#refreshgame').onclick=()=>openGame(g.id,challengeInvite);
  bindQuizResults(g);
@@ -81,9 +81,29 @@ function renderGame(){
  rememberNavigation({page:'gamePlay',id:g.id,invite:challengeInvite});
 }
 async function answerGame(choice){
- if(gameAnswering||!activeGame?.question)return;gameAnswering=true;const position=activeGame.question.position,id=activeGame.id,endpoint=gameEndpoint();
- document.querySelectorAll('[data-game-answer]').forEach(b=>{b.disabled=true;if(Number(b.dataset.gameAnswer)===choice){b.classList.add('answer-pending');b.setAttribute('aria-pressed','true')}});if($('#gameanswererror'))$('#gameanswererror').textContent='Saving your answer…';
- try{const data=await api(endpoint+'/answer',{method:'POST',body:{position,choice}});if(activeGame?.id!==id)return;activeGame=data.game;gameAnswering=false;if(!$('#gamePlay').hidden){if(document.startViewTransition&&!matchMedia('(prefers-reduced-motion:reduce)').matches)document.startViewTransition(()=>{renderGame();window.scrollTo({top:0,behavior:'instant'})});else{renderGame();window.scrollTo({top:0,behavior:'instant'})}}if(user&&activeGame.complete){await refreshChallengeNotifications(false);await markGameRead(id)}}catch(e){gameAnswering=false;if(activeGame?.id===id&&!$('#gamePlay').hidden){document.querySelectorAll('[data-game-answer]').forEach(b=>{b.disabled=false;b.classList.remove('answer-pending');b.removeAttribute('aria-pressed')});if($('#gameanswererror'))$('#gameanswererror').textContent=e.message;else toast(e.message)}}finally{gameAnswering=false}
+ if(gameAnswering||!activeGame?.question)return;gameAnswering=true;
+ const position=activeGame.question.position,id=activeGame.id,endpoint=gameEndpoint(),pane=$('#gamePlay .quiz-question-pane');
+ document.querySelectorAll('[data-game-answer]').forEach(b=>{b.disabled=true;if(Number(b.dataset.gameAnswer)===choice){b.classList.add('answer-pending');b.setAttribute('aria-pressed','true')}});
+ if($('#gameanswererror'))$('#gameanswererror').textContent='';
+ const stopLoading=questionWait(pane,position+1===activeGame.count?'Saving your last answer…':'Loading question '+(position+2)+'…',position+1===activeGame.count?'Your results are up next.':'Your answer is being saved.');
+ try{
+  const data=await api(endpoint+'/answer',{method:'POST',body:{position,choice}});if(activeGame?.id!==id){gameAnswering=false;return}
+  activeGame=data.game;gameAnswering=false;stopLoading();
+  if(!$('#gamePlay').hidden){
+   renderGame();const next=$('#gamePlay .quiz-question-pane');
+   if(next){next.classList.add('question-arriving');if(next.getBoundingClientRect().top<0)next.scrollIntoView({block:'start',behavior:'instant'})}
+   else window.scrollTo({top:0,behavior:'instant'});
+  }
+  if(user&&activeGame.complete)refreshChallengeNotifications(false).then(()=>markGameRead(id)).catch(()=>{});
+ }catch(e){
+  gameAnswering=false;stopLoading();if(activeGame?.id===id&&!$('#gamePlay').hidden){document.querySelectorAll('[data-game-answer]').forEach(b=>{b.disabled=false;b.classList.remove('answer-pending');b.removeAttribute('aria-pressed')});if($('#gameanswererror'))$('#gameanswererror').textContent=e.message;else toast(e.message)}
+ }finally{stopLoading()}
+}
+// Retain the current card’s dimensions while the server saves and loads the next item.
+// Brief requests keep their selected answer; slower requests get an explicit loading card.
+function questionWait(pane,title,detail=''){
+ let overlay=null;const timer=setTimeout(()=>{if(!pane?.isConnected)return;pane.setAttribute('aria-busy','true');overlay=document.createElement('div');overlay.className='question-wait';overlay.setAttribute('role','status');overlay.innerHTML=`<span class="loading-orbit" aria-hidden="true"></span><strong>${esc(title)}</strong>${detail?`<small>${esc(detail)}</small>`:''}`;pane.append(overlay)},180);
+ return ()=>{clearTimeout(timer);overlay?.remove();pane?.removeAttribute('aria-busy')};
 }
 
 async function openChallengeList(){
