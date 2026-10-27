@@ -6,7 +6,7 @@ import {readyCount,nextReady,prepareReady} from './ready.mjs';
 import {displayQuestion,formatUnits} from './quiz.mjs';
 import {friendsApi} from './friends.mjs';
 import {gamesApi,quizAllowance} from './games.mjs';
-import { deliverPendingWelcomes } from './mail.mjs';
+import { deliverPendingWelcomes,welcomeStatus,retryWelcome } from './mail.mjs';
 import { SUBJECTS, approveTopic, updateProfile } from './profiles.mjs';
 async function body(request,limit=16000) {
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('Use JSON for this request.',415);
@@ -22,7 +22,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
@@ -79,6 +79,8 @@ async function api(request,env,ctx){
  if(method==='GET'&&path==='/api/my-profile'){
   const stats=await env.DB.prepare('SELECT COUNT(DISTINCT question_id) discoveries,COUNT(*) attempts,SUM(correct) correct FROM attempts WHERE user_id=?').bind(user.id).first(),saved=await env.DB.prepare('SELECT COUNT(*) n FROM saved WHERE user_id=?').bind(user.id).first(),games=await env.DB.prepare('SELECT COUNT(*) n FROM (SELECT id FROM trivia_players WHERE user_id=? AND completed_at IS NOT NULL UNION ALL SELECT id FROM quiz_participants WHERE user_id=? AND completed_at IS NOT NULL)').bind(user.id,user.id).first(),friends=await env.DB.prepare('SELECT COUNT(*) n FROM friendships WHERE (user_low=? OR user_high=?) AND accepted_at IS NOT NULL').bind(user.id,user.id).first();return json({user:publicUser(user),stats:{discoveries:stats.discoveries,accuracy:stats.attempts?Math.round(stats.correct/stats.attempts*100):0,saved:saved.n,quizzes:games.n,friends:friends.n}});
  }
+ if(method==='GET'&&path==='/api/account/welcome-email')return json(await welcomeStatus(env,user),200,{'Cache-Control':'no-store'});
+ if(method==='POST'&&path==='/api/account/welcome-email'){await budget(env,`welcome-retry:${user.id}:${localDay()}`,3,Date.now()+2*DAY,'You can retry your welcome email three times a day. Please try again tomorrow.');return json(await retryWelcome(env,user))}
  if(method==='GET'&&path==='/api/me')return json({user:publicUser(user)});
  if(method==='POST'&&path==='/api/account/email')return requestEmailChange(request,env,user,await body(request));
  if(method==='GET'&&path==='/api/quiz-topics'){

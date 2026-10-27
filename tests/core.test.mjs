@@ -120,3 +120,12 @@ test('answer shuffling preserves the answer and distributes its position',async(
 test('new usernames use CamelCase words and digits, and optional timers validate',async()=>{
  const {randomFriendUsername}=await import('../worker/core.mjs');const handles=new Set();for(let i=0;i<100;i++){const name=randomFriendUsername();assert.match(name,/^[A-Z][a-z]+[A-Z][a-z]+\d{2,4}$/);handles.add(name)}assert.ok(handles.size>95);assert.deepEqual(validateSettings({timerSeconds:30}),{timerSeconds:30});assert.deepEqual(validateSettings({timerSeconds:0}),{timerSeconds:0});for(const value of [-1,5,121,'30'])assert.throws(()=>validateSettings({timerSeconds:value}));
 });
+
+test('avatar crop stays covered and zoom preserves the chosen focal point',async()=>{
+ await import('../avatar.js');const crop=globalThis.FancyAvatar;
+ const wide={width:1200,height:600,zoom:1,x:999,y:-999},fit=crop.clamp(wide);assert.equal(fit.x,160);assert.equal(fit.y,0);
+ const tall=crop.clamp({width:600,height:1200,zoom:1,x:999,y:-999});assert.equal(tall.x,0);assert.equal(tall.y,-160);
+ const base={width:800,height:800,zoom:2,x:20,y:30},point={x:190,y:180},zoomed=crop.zoomAt(base,3,point);assert.equal(zoomed.x,15);assert.equal(zoomed.y,35);assert.equal(zoomed.zoom,3);
+ const reset=crop.zoomAt(zoomed,.1);assert.equal(reset.zoom,1);assert.equal(reset.x,0);assert.equal(reset.y,0);
+ for(const zoom of [1,1.3,2,4,10]){const state=crop.zoomAt({...wide,x:200,y:50},zoom),scale=320/Math.min(state.width,state.height)*state.zoom;assert.ok(Math.abs(state.x)<=(state.width*scale-320)/2);assert.ok(Math.abs(state.y)<=(state.height*scale-320)/2);assert.ok(state.zoom<=4)}
+});

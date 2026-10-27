@@ -8,7 +8,7 @@ function updateChallengeBadges(){
 }
 async function refreshChallengeNotifications(announce=false){
  if(!user)return;const owner=user.id;try{const data=await api('/notifications');if(user?.id!==owner)return;const newItems=notificationSeen?data.notifications.filter(n=>!n.read&&!notificationSeen.has(n.id+':'+n.createdAt)):[];challengeNotifications=data.notifications;challengeUnread=data.unread;notificationSeen=new Set(data.notifications.map(n=>n.id+':'+n.createdAt));updateChallengeBadges();renderHomeActivity();
-  if(announce&&newItems.length){toast(newItems.length===1?newItems[0].title+': '+newItems[0].topic:newItems.length+' new notifications');if(user.settings.challengeAlerts&&globalThis.Notification?.permission==='granted'&&'serviceWorker'in navigator){const reg=await navigator.serviceWorker.ready;for(const n of newItems)await reg.showNotification(n.title,{body:n.topic,tag:'challenge-'+n.id,icon:'/assets/app-icon.png',data:{url:'/?game='+n.gameId}})}}
+  if(announce&&newItems.length){toast(newItems.length===1?newItems[0].title+': '+newItems[0].topic:newItems.length+' new notifications');if(user.settings.challengeAlerts&&globalThis.Notification?.permission==='granted'&&'serviceWorker'in navigator){const reg=await navigator.serviceWorker.ready;for(const n of newItems.filter(n=>n.gameId))await reg.showNotification(n.title,{body:n.topic,tag:'challenge-'+n.id,icon:'/assets/app-icon.png',data:{url:'/?game='+n.gameId}})}}
  }catch{}
 }
 async function loadHome(){
@@ -22,7 +22,7 @@ function renderHome(){
 }
 function renderHomeActivity(){
  const holder=$('#homeactivity');if(!holder||$('#home').hidden)return;
- const items=[...challengeNotifications].sort((a,b)=>Number(a.read)-Number(b.read)||b.createdAt-a.createdAt).slice(0,3),count=$('#homeactivitycount');if(count)count.textContent=challengeUnread?String(challengeUnread):'';
+ const items=challengeNotifications.filter(n=>n.gameId).sort((a,b)=>Number(a.read)-Number(b.read)||b.createdAt-a.createdAt).slice(0,3),count=$('#homeactivitycount');if(count){const unread=challengeNotifications.filter(n=>n.gameId&&!n.read).length;count.textContent=unread?String(unread):''};
  holder.innerHTML=items.length?items.map(n=>`<button class="dashboard-update ${n.read?'':'unread'}" data-home-update="${n.gameId}"><span class="update-bubble" aria-hidden="true">${n.type==='challenge_invite'?'💌':'🏆'}</span><span><strong>${esc(n.title)}</strong><small>${esc(n.topic)} · ${new Date(n.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</small></span>${n.read?'':'<i class="unread-dot" aria-label="Unread"></i>'}</button>`).join(''):'<p class="dashboard-empty">All quiet for now. New invitations and completed challenges will appear here.</p>';
  holder.querySelectorAll('[data-home-update]').forEach(b=>b.onclick=()=>openGame(b.dataset.homeUpdate));
 }
