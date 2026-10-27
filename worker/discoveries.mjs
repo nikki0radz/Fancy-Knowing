@@ -29,6 +29,6 @@ export async function assignDiscovery(env,user,day,slot){
  }finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}
 }
 export async function daySlots(env,userId,day,count){
- const rows=await env.DB.prepare(`SELECT a.slot,a.question_id,a.subject,EXISTS(SELECT 1 FROM attempts t WHERE t.user_id=a.user_id AND t.question_id=a.question_id) AS answered FROM daily_assignments a WHERE a.user_id=? AND a.day=? ORDER BY a.slot`).bind(userId,day).all();
- return Array.from({length:count},(_,slot)=>{const item=rows.results.find(row=>row.slot===slot);return {slot,id:item?.question_id||null,topic:item?.subject||null,answered:!!item?.answered}});
+ const rows=await env.DB.prepare(`SELECT a.slot,a.question_id,a.subject,q.data,EXISTS(SELECT 1 FROM attempts t WHERE t.user_id=a.user_id AND t.question_id=a.question_id) AS answered FROM daily_assignments a JOIN questions q ON q.id=a.question_id WHERE a.user_id=? AND a.day=? ORDER BY a.slot`).bind(userId,day).all();
+ return Array.from({length:count},(_,slot)=>{const item=rows.results.find(row=>row.slot===slot);return {slot,id:item?.question_id||null,topic:item?.subject||null,answered:!!item?.answered,question:item?JSON.parse(item.data).q:null}});
 }

@@ -23,18 +23,20 @@ function generationMock(handler){return async(url,options)=>{
 }}
 let generatedNumber=0,generatedTopic='Science',generationCalls=0;
 before(async()=>{
- mf=new Miniflare(convertV4MiniflareOptions({modules:['index.mjs','core.mjs','ai.mjs','auth.mjs','profiles.mjs','mail.mjs','memory.mjs','discoveries.mjs'].map(f=>({type:'ESModule',path:new URL('../worker/'+f,import.meta.url).pathname})),compatibilityDate:'2026-10-26',d1Databases:['DB'],bindings:{SIGNUP_CODE:'private-test-code',OPENAI_API_KEY:'test-key',RESEND_API_KEY:'test-resend-key',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>',APP_URL:origin},outboundService:async request=>{
+ mf=new Miniflare(convertV4MiniflareOptions({modules:['index.mjs','core.mjs','ai.mjs','auth.mjs','profiles.mjs','mail.mjs','memory.mjs','discoveries.mjs','games.mjs','trivia.mjs'].map(f=>({type:'ESModule',path:new URL('../worker/'+f,import.meta.url).pathname})),compatibilityDate:'2026-10-26',d1Databases:['DB'],bindings:{SIGNUP_CODE:'private-test-code',OPENAI_API_KEY:'test-key',RESEND_API_KEY:'test-resend-key',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>',APP_URL:origin},outboundService:async request=>{
   if(new URL(request.url).hostname==='api.resend.com'){if(mailFails)return Response.json({error:'sender not verified'},{status:403});sentEmails.push(await request.json());return Response.json({id:crypto.randomUUID()})}
   if(new URL(request.url).hostname==='api.openai.com'){const body=await request.json();
    if(new URL(request.url).pathname.endsWith('/embeddings'))return embeddingResponse(body);
    if(body.tools){generationCalls++;generatedNumber++;generatedTopic=JSON.parse(body.input).topic;return aiText('Fixture quiz and official factual evidence.',[triviaUrl,'https://facts.example.test/source'])}
+   if(body.text?.format?.name==='trivia_pack_review')return aiText({accepted:true,reason:'Clear varied quiz.'});
+   if(body.text?.format?.name==='trivia_pack'){const count=body.text.format.schema.properties.questions.minItems,options=body.text.format.schema.properties.questions.items.properties.options.minItems;return aiText({questions:Array.from({length:count},(_,i)=>({topic:generatedTopic,q:`Which archive specimen has catalogue ${generatedNumber}-${i}?`,options:Array.from({length:options},(_,n)=>`Archive specimen ${generatedNumber}-${i}-${n}`),correct:0,explanation:'The archive records this specimen.',source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:`pack-${generatedNumber}-${i}`,subtopic:`archive-${i}`,aliases:[],follow:['Where is it?','Who named it?','How old is it?']}))})}
    if(body.text?.format?.name==='trivia_quality')return aiText({accepted:true,reason:'Clear fixture.'});
    if(body.text?.format?.name==='daily_question'){const count=body.text.format.schema.properties.options.minItems;return aiText({topic:generatedTopic,q:`Which specimen has catalogue number ${generatedNumber}?`,options:Array.from({length:count},(_,i)=>`Specimen ${generatedNumber}-${i}`),correct:0,explanation:`It is specimen ${generatedNumber}-0.`,source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:'fixture-fact-'+generatedNumber,subtopic:'fixture-subject-'+generatedNumber,aliases:[],follow:['Where is it?','Who named it?','How old is it?']})}
    if(body.text?.format?.name==='learning_topic'){const text=JSON.parse(body.input).proposedTopic;return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(text==='asdfghjkl'?{accepted:false,topic:'',reason:'Try a recognisable topic, such as marine biology.'}:{accepted:true,topic:'Marine biology focused on sharks',reason:'A valid learning topic.'})}]}]})}
   return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'Its gills take oxygen out of the water.'}]}]})};
   return new Response('Unexpected outbound request',{status:500});
  }}));
- db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql','0005_shared_questions.sql','0006_question_slots_memory.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
+ db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql','0005_shared_questions.sql','0006_question_slots_memory.sql','0007_trivia_challenges.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
  await db.batch(schema.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const q={topic:'Nature',q:'How many hearts does an octopus have?',options:['One','Two','Three','Four'],correct:2,explanation:'Three. Two serve its gills.',source:'https://www.nhm.ac.uk/',aliases:['3'],concept:'octopus-hearts',follow:['What do its gills do?','Why is its blood blue?','Do the hearts do the same job?']};
@@ -288,4 +290,44 @@ test('editing and deleting notification rows keeps their original question slot 
  assert.equal((await call('/settings',{method:'PUT',cookie,body:{reminders:[{...rows[1],time:'19:00'}]}})).status,200);
  schedule=await call('/notification-schedule',{cookie});assert.equal(schedule.data.items.length,1);assert.equal(schedule.data.items[0].slot,2);assert.equal(schedule.data.items[0].time,'19:00');assert.ok(schedule.data.items[0].url.endsWith('&slot=2'));
  assert.equal((await call('/settings',{method:'PUT',cookie,body:{reminders:[]}})).status,200);schedule=await call('/notification-schedule',{cookie});assert.equal(schedule.data.configuredCount,0);assert.deepEqual(schedule.data.items,[]);assert.deepEqual((await call('/me',{cookie})).data.user.settings.reminders,[]);
+});
+
+let challengeTestCookie;
+test('asynchronous challenge preserves answers, guest identity, privacy and persistent result badges',async()=>{
+ const host=await call('/auth/signup',{method:'POST',body:{email:'challenge-host@example.com',password:'x',code:'private-test-code'}}),cookie=host.cookie;challengeTestCookie=cookie;
+ const before=generationCalls,home=await call('/home',{cookie});assert.equal(home.status,200);assert.equal(home.data.slots.length,1);assert.equal(generationCalls,before);
+ assert.equal((await call('/games',{method:'POST',body:{}})).status,401);
+ const body={kind:'challenge',topic:'History',difficulty:'easy',count:5,requestId:crypto.randomUUID()};
+ const created=await call('/games',{cookie,method:'POST',body});assert.equal(created.status,200,JSON.stringify(created.data));const game=created.data.game,id=game.id;
+ assert.equal(game.question.options.length,4);assert.equal(game.question.correct,undefined);assert.equal(game.review,undefined);
+ assert.equal((await call('/games',{cookie,method:'POST',body})).data.game.id,id);
+ const token=new URL(game.inviteUrl).searchParams.get('challenge'),path='/challenges/'+token;
+ const outsider=await call(path);assert.equal(outsider.data.game.question,undefined);assert.equal(outsider.data.game.canJoin,true);
+ const sameHost=await call(path+'/join',{cookie,method:'POST',body:{name:'Host'}});assert.equal(sameHost.data.game.players.length,1);
+ const joined=await call(path+'/join',{method:'POST',body:{name:'A friend'}});assert.equal(joined.status,200);const guestCookie=joined.cookie;assert.ok(guestCookie);
+ assert.deepEqual(joined.data.game.question,game.question);
+ assert.equal((await call(path+'/join',{method:'POST',body:{name:'An intruder'}})).status,409);
+ assert.equal((await call('/games/'+id,{cookie:(await call('/auth/login',{method:'POST',body:{email:'mum@example.com',password:'another-test-password'}})).cookie})).status,403);
+ assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:2,choice:0}})).status,409);
+ for(let position=0;position<5;position++){const r=await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position,choice:0}});assert.equal(r.status,200,JSON.stringify(r.data));assert.equal(r.data.game.review,undefined);assert.ok(r.data.game.players.every(p=>p.score===undefined))}
+ assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:0,choice:1}})).status,409);
+ assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:0,choice:0}})).status,200);
+ assert.equal((await call('/notifications',{cookie})).data.unread,0);
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM attempts WHERE user_id=?').bind(host.data.user.id).first()).n,0);
+ let finished;for(let position=0;position<5;position++)finished=await call(path+'/answer',{cookie:guestCookie,method:'POST',body:{position,choice:1}});
+ assert.equal(finished.status,200);assert.equal(finished.data.game.complete,true);assert.equal(finished.data.game.review.length,5);
+ const result=await call('/games/'+id,{cookie});assert.equal(result.data.game.players.find(p=>p.self).score,5);assert.equal(result.data.game.draw,false);
+ const anonymous=await call(path);assert.equal(anonymous.data.game.review,undefined);assert.ok(anonymous.data.game.players.every(p=>p.score===undefined));
+ let notices=await call('/notifications',{cookie});assert.equal(notices.data.unread,1);assert.equal(notices.data.notifications[0].gameId,id);
+ await call(path+'/answer',{cookie:guestCookie,method:'POST',body:{position:4,choice:1}});assert.equal((await call('/notifications',{cookie})).data.unread,1);
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM attempts WHERE user_id=?').bind(host.data.user.id).first()).n,5);
+ await call('/notifications/'+notices.data.notifications[0].id+'/read',{cookie,method:'POST',body:{}});assert.equal((await call('/notifications',{cookie})).data.unread,0);
+ assert.equal((await call('/games',{cookie})).data.games.length,1);
+});
+test('single extra question reveals a result and saves a normal discovery',async()=>{
+ const cookie=challengeTestCookie;
+ const response=await call('/games',{cookie,method:'POST',body:{kind:'solo',topic:'History',difficulty:'hard',count:1,requestId:crypto.randomUUID()}});assert.equal(response.status,200,JSON.stringify(response.data));
+ const result=await call('/games/'+response.data.game.id+'/answer',{cookie,method:'POST',body:{position:0,choice:0}});assert.equal(result.data.game.complete,true);const id=result.data.game.review[0].id;
+ assert.equal((await call('/questions/'+id,{cookie})).data.question.correct,0);
+ assert.equal((await call('/questions/'+id+'/save',{cookie,method:'POST',body:{saved:true}})).status,200);
 });

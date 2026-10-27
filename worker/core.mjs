@@ -29,6 +29,7 @@ export function validateSettings(value) {
  if('font' in value){if(!['clean','typewriter','classic','script','gothic','handwritten'].includes(value.font))fail('Choose an available font.');output.font=value.font}
  for(const [key,min,max] of [['fontSize',75,160],['dailyAmount',1,10],['answerCount',2,10]])if(key in value){if(!Number.isInteger(value[key])||value[key]<min||value[key]>max)fail('Invalid '+key+' setting.');output[key]=value[key]}
  if('reminders' in value)output.reminders=validateReminders(value.reminders);
+ if('challengeAlerts' in value){if(typeof value.challengeAlerts!=='boolean')fail('Choose a valid challenge alert setting.');output.challengeAlerts=value.challengeAlerts}
  if('notificationsEnabled' in value){if(typeof value.notificationsEnabled!=='boolean')fail('Invalid notification setting.');output.notificationsEnabled=value.notificationsEnabled}
  return output;
 }
