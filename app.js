@@ -100,11 +100,49 @@ async function resizeAvatar(file){
  let image;try{image=await createImageBitmap(file)}catch{throw new Error('That picture could not be opened. Try another image.')}
  const canvas=document.createElement('canvas');canvas.width=canvas.height=160;const ctx=canvas.getContext('2d'),side=Math.min(image.width,image.height);ctx.fillStyle='#f8f5ed';ctx.fillRect(0,0,160,160);ctx.drawImage(image,(image.width-side)/2,(image.height-side)/2,side,side,0,0,160,160);image.close();return canvas.toDataURL('image/jpeg',.85);
 }
+let chatReveal=null;
+function stopChatReveal(){if(chatReveal)chatReveal.cancel()}
+function nearChatBottom(){const box=$('#messages');return box.scrollHeight-box.scrollTop-box.clientHeight<90}
+function showMessages({typingIndex=-1,preserveScroll=false,pending=chatBusy}={}){
+ if(!$('#chat').open)return;
+ const box=$('#messages'),oldTop=box.scrollTop,follow=!preserveScroll||nearChatBottom();
+ box.innerHTML=chatMessages.map((m,i)=>`<div class="message ${m.role==='user'?'user':''}" data-message="${i}">${i===typingIndex?'':esc(m.content)}</div>`).join('')+(pending?'<div class="message thinking" role="status"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="sr-only">Thinking…</span></div>':'');
+ if(!chatMessages.length&&!pending)box.innerHTML='<div class="message">Ask one small thing. We’ll keep the answer small, too.</div>';
+ box.scrollTop=follow?box.scrollHeight:oldTop;$('#sendchat').disabled=chatBusy;$('#chatinput').disabled=chatBusy;
+}
+function revealChatReply(text,index){
+ if(!$('#chat').open||matchMedia('(prefers-reduced-motion: reduce)').matches){showMessages({pending:false});return Promise.resolve()}
+ showMessages({typingIndex:index,pending:false});const element=$('#messages').querySelector('[data-message="'+index+'"]');if(!element)return Promise.resolve();
+ const parts=typeof Intl.Segmenter==='function'?Array.from(new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text),part=>part.segment):Array.from(text);
+ return new Promise(resolve=>{
+  let frame=0,startTime=null,finished=false;const speed=Math.max(75,parts.length/3.5);
+  element.classList.add('is-typing');
+  const finish=()=>{if(finished)return;finished=true;cancelAnimationFrame(frame);element.textContent=text;element.classList.remove('is-typing');if(chatReveal===controller)chatReveal=null;resolve()};
+  const controller={cancel:finish};chatReveal=controller;
+  const step=now=>{
+   if(!$('#chat').open){finish();return}if(startTime===null)startTime=now;
+   const follow=nearChatBottom(),count=Math.min(parts.length,Math.max(1,Math.floor((now-startTime)*speed/1000)));
+   element.textContent=parts.slice(0,count).join('');if(follow)$('#messages').scrollTop=$('#messages').scrollHeight;
+   if(count===parts.length)finish();else frame=requestAnimationFrame(step);
+  };
+  frame=requestAnimationFrame(step);
+ });
+}
+function syncChatViewport(){if(!$('#chat').open)return;const viewport=window.visualViewport;$('#chat').style.setProperty('--chat-height',(viewport?.height||window.innerHeight)+'px');$('#chat').style.setProperty('--chat-top',(viewport?.offsetTop||0)+'px')}
+window.visualViewport?.addEventListener('resize',syncChatViewport);window.visualViewport?.addEventListener('scroll',syncChatViewport);window.addEventListener('resize',syncChatViewport);
 async function loadChat(id){const data=await api(`/questions/${id}/chat`);if(chatId===id){chatMessages=data.messages;showMessages()}}
-function showMessages(){if(!$('#chat').open)return;$('#messages').innerHTML=chatMessages.map(m=>`<div class="message ${m.role==='user'?'user':''}">${esc(m.content)}</div>`).join('')+(chatBusy?'<div class="message" role="status">Thinking…</div>':'');if(!chatMessages.length&&!chatBusy)$('#messages').innerHTML='<div class="message">Ask one small thing. We’ll keep the answer small, too.</div>';$('#messages').scrollTop=$('#messages').scrollHeight;$('#sendchat').disabled=chatBusy;$('#chatinput').disabled=chatBusy}
-async function openChat(suggestion){if(chatBusy)return;chatId=current.id;chatMessages=[];$('#chaterror').textContent='';$('#chat').showModal();$('#messages').innerHTML=loading('Opening your conversation…');try{await loadChat(chatId);if(suggestion)await sendChat(suggestion);else $('#chatinput').focus()}catch(e){$('#chaterror').textContent=e.message}}
-async function sendChat(text){if(chatBusy||!text.trim())return;const id=chatId;chatBusy=true;$('#chaterror').textContent='';chatMessages.push({role:'user',content:text});showMessages();try{const data=await api(`/questions/${id}/chat`,{method:'POST',body:{message:text}});if(chatId===id){chatMessages.push({role:'assistant',content:data.reply});$('#chatinput').value=''}}catch(e){if(chatId===id){chatMessages.pop();$('#chatinput').value=text;$('#chaterror').textContent=e.message}}finally{chatBusy=false;if(chatId===id){showMessages();$('#chatinput').focus()}}}
+async function openChat(suggestion){
+ if(chatBusy)return;stopChatReveal();chatId=current.id;chatMessages=[];$('#chaterror').textContent='';$('#chatannounce').textContent='';$('#chat').showModal();document.body.classList.add('chat-open');syncChatViewport();$('#messages').innerHTML=loading('Opening your conversation…');
+ try{await loadChat(chatId);if(!$('#chat').open)return;if(suggestion)await sendChat(suggestion);else $('#chatinput').focus({preventScroll:true})}catch(e){$('#chaterror').textContent=e.message}
+}
+async function sendChat(text){
+ if(chatBusy||!text.trim())return;const id=chatId;chatBusy=true;$('#chaterror').textContent='';$('#chatannounce').textContent='';chatMessages.push({role:'user',content:text});$('#chatinput').value='';showMessages();
+ try{const data=await api(`/questions/${id}/chat`,{method:'POST',body:{message:text}});if(chatId===id){chatMessages.push({role:'assistant',content:data.reply});await revealChatReply(data.reply,chatMessages.length-1);if($('#chat').open)$('#chatannounce').textContent=data.reply}}
+ catch(e){if(chatId===id){chatMessages.pop();$('#chatinput').value=text;$('#chaterror').textContent=e.message}}
+ finally{chatBusy=false;if(chatId===id){showMessages({preserveScroll:true});if($('#chat').open)$('#chatinput').focus({preventScroll:true})}}
+}
 $('#chatform').onsubmit=e=>{e.preventDefault();sendChat($('#chatinput').value.trim())};$('#closechat').onclick=()=>$('#chat').close();
+$('#chat').addEventListener('close',()=>{stopChatReveal();document.body.classList.remove('chat-open');$('#chatannounce').textContent=''});
 $('#theme').onclick=async()=>{const previous=theme;applyTheme(theme==='dark'?'light':'dark');if(user){try{const data=await api('/settings',{method:'PUT',body:{theme}});user.settings=data.settings}catch(e){applyTheme(previous);toast(e.message)}if(!$('#settings').hidden)renderSettings()}};
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=async()=>{if(!user)return;const p=b.dataset.page;if(p==='today'){if(current){page('today');renderToday()}else await loadToday()}if(p==='settings'){page('settings');renderSettings()}if(p==='bank'){page('bank');$('#bank').innerHTML=loading('Opening your collection…');try{await loadLibrary();renderBank()}catch(e){toast(e.message)}}});
 applyTheme(theme);
