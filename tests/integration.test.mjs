@@ -279,3 +279,13 @@ test('each question can have its own reminder, and unconfigured questions receiv
  schedule=await call('/notification-schedule',{cookie});assert.deepEqual(schedule.data.times,['10:00']);assert.equal(schedule.data.questionCount,1);
  const other=await login('mum@example.com','another-test-password');assert.equal((await call('/me',{cookie:other.cookie})).data.user.settings.reminders,undefined);
 });
+
+test('editing and deleting notification rows keeps their original question slot and permits deleting the last row',async()=>{
+ const owner=await login('nicole@example.com','x'),cookie=owner.cookie;
+ const rows=[{slot:0,mode:'fixed',time:'09:00'},{slot:2,mode:'fixed',time:'18:00'}];
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{dailyAmount:3,reminders:rows,notificationsEnabled:true}})).status,200);
+ let schedule=await call('/notification-schedule',{cookie});assert.deepEqual(schedule.data.items.map(item=>item.slot),[0,2]);assert.ok(schedule.data.items[1].url.endsWith('&slot=2'));
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{reminders:[{...rows[1],time:'19:00'}]}})).status,200);
+ schedule=await call('/notification-schedule',{cookie});assert.equal(schedule.data.items.length,1);assert.equal(schedule.data.items[0].slot,2);assert.equal(schedule.data.items[0].time,'19:00');assert.ok(schedule.data.items[0].url.endsWith('&slot=2'));
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{reminders:[]}})).status,200);schedule=await call('/notification-schedule',{cookie});assert.equal(schedule.data.configuredCount,0);assert.deepEqual(schedule.data.items,[]);assert.deepEqual((await call('/me',{cookie})).data.user.settings.reminders,[]);
+});

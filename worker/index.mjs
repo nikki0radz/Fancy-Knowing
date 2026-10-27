@@ -82,7 +82,7 @@ async function api(request,env,ctx){
  if(method==='GET'&&path==='/api/notification-schedule'){
   const settings=JSON.parse(user.settings),timezone=settings.timezone||'Europe/London',day=localDay(timezone);
   const times=await notificationTimes(settings,day,user.id),slots=await daySlots(env,user.id,day,settings.dailyAmount||1);
-  return json({day,timezone,times,configuredCount:Array.isArray(settings.reminders)?settings.reminders.length:(settings.dailyAmount||1),questionCount:settings.dailyAmount||1,items:times.map((time,slot)=>({time,slot,questionId:slots[slot]?.id||null,url:url.origin+'/?day='+day+'&slot='+slot})),deliveryAvailable:false});
+  return json({day,timezone,times,configuredCount:Array.isArray(settings.reminders)?settings.reminders.length:(settings.dailyAmount||1),questionCount:settings.dailyAmount||1,items:times.map((time,index)=>{const slot=settings.reminders?.[index]?.slot??index;return {time,slot,questionId:slots[slot]?.id||null,url:url.origin+'/?day='+day+'&slot='+slot}}),deliveryAvailable:false});
  }
  if(method==='GET'&&path==='/api/today'){
   const settings=JSON.parse(user.settings),today=localDay(settings.timezone||'Europe/London'),day=url.searchParams.get('day')||today;

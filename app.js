@@ -31,7 +31,7 @@ function rememberNavigation(route){
  else history.pushState({fancyKnowing:true,index:++navigationIndex,route},'');
  navigationKey=key;
 }
-function openAppDialog(dialog){dialog.showModal();rememberNavigation({...visibleRoute,dialog:dialog.id,...(dialog.id==='timeDialog'?{field:timeTarget}:{})})}
+function openAppDialog(dialog){dialog.showModal();rememberNavigation({...visibleRoute,dialog:dialog.id})}
 function appBack(fallback){if(navigationReady&&history.state?.index>1)history.back();else fallback()}
 async function restoreNavigation(route){
  navigationRestoring=true;
@@ -52,7 +52,7 @@ async function restoreNavigation(route){
    else showAuth();
    visibleRoute=base;
   }
-  if(route.dialog){const dialog=document.getElementById(route.dialog);if(dialog&&!dialog.open){if(dialog.id==='chat')await openChat();else if(dialog.id==='shareDialog')await showShare(current.id);else if(dialog.id==='timeDialog')openTimePicker(route.field||'time');else if(dialog.id==='colourDialog')FancyDesign.wheel(dialog,{...user.settings,theme},async patch=>{await saveSettings(patch);renderSettings()});else dialog.showModal()}}
+  if(route.dialog){const dialog=document.getElementById(route.dialog);if(dialog&&!dialog.open){if(dialog.id==='chat')await openChat();else if(dialog.id==='shareDialog')await showShare(current.id);else if(dialog.id==='colourDialog')FancyDesign.wheel(dialog,{...user.settings,theme},async patch=>{await saveSettings(patch);renderSettings()});else dialog.showModal()}}
   if(route.menu){const trigger=document.querySelector(`[data-reminder-menu="${route.menu}"][data-reminder-index="${route.reminder||0}"]`);if(trigger){const extra=trigger.closest('details');if(extra)extra.open=true;openReminderMenu(route.menu,trigger,false)}}
  }finally{navigationRestoring=false}
 }
@@ -66,7 +66,7 @@ window.addEventListener('popstate',event=>{
   if(state.index===0&&history.state?.index===0&&user){navigationIndex=1;history.pushState({fancyKnowing:true,index:1,route:state.route},'')}
  });
 });
-function clearAccount(){navigationReady=false;navigationKey='';visibleRoute=null;user=null;reminderDraft=null;reminderDraftOwner=null;renderHeaderProfile();current=null;todayId=null;library=[];chatId=null;chatMessages=[];if($('#chat').open)$('#chat').close();$('#nav').hidden=true}
+function clearAccount(){navigationReady=false;navigationKey='';visibleRoute=null;user=null;reminderDraft=null;reminderDraftOwner=null;editingReminderSlot=null;reminderSaving=false;reminderNotice='';renderHeaderProfile();current=null;todayId=null;library=[];chatId=null;chatMessages=[];if($('#chat').open)$('#chat').close();$('#nav').hidden=true}
 function page(name){['auth','today','bank','settings','onboarding','emailsetup'].forEach(p=>$('#'+p).hidden=p!==name);$('#nav').hidden=!user||['auth','onboarding','emailsetup'].includes(name);document.querySelectorAll('[data-page]').forEach(b=>{if(b.dataset.page===name)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});window.scrollTo({top:0})}
 function showAuth(error=''){
  page('auth');const signup=authMode==='signup';
@@ -156,28 +156,41 @@ function renderBank(){
 function saveSettings(patch){const task=settingsSaveQueue.catch(()=>{}).then(async()=>{const data=await api('/settings',{method:'PUT',body:patch});if((user.settings.dailyAmount||1)!==(data.settings.dailyAmount||1))todayNeedsRefresh=true;user.settings=data.settings;applyTheme(data.settings.theme||theme);return data.settings});settingsSaveQueue=task;return task}
 const reminderPeriods={morning:{label:'Morning',hours:'6:00am–12:00pm'},midday:{label:'Midday',hours:'12:00pm–2:00pm'},afternoon:{label:'Afternoon',hours:'2:00pm–6:00pm'},evening:{label:'Evening',hours:'6:00pm–10:00pm'},night:{label:'Night',hours:'10:00pm–midnight'}};
 const reminderLabels={random:'Random time',fixed:'Set time',period:'Time of day'};
-let reminderDraft=null,reminderDraftOwner=null,reminderMenuKind=null,reminderMenuIndex=0;
-const expandedReminders=new Set();
+let reminderDraft=null,reminderDraftOwner=null,reminderMenuKind=null,reminderMenuIndex=0,editingReminderSlot=null,reminderSaving=false,reminderNotice='',reminderError=false;
 function formatTime(value){const [hour,minute]=value.split(':').map(Number);return `${hour%12||12}:${String(minute).padStart(2,'0')}${hour<12?'am':'pm'}`}
 function minuteTime(minute){return String(Math.floor(minute/60)).padStart(2,'0')+':'+String(minute%60).padStart(2,'0')}
-function initialiseReminders(settings){
- if(reminderDraftOwner===user.id&&reminderDraft)return;
- reminderDraftOwner=user.id;expandedReminders.clear();
- if(Array.isArray(settings.reminders)){reminderDraft=settings.reminders.map(row=>({...row}));return}
+function savedReminderRows(settings=user.settings){
+ if(Array.isArray(settings.reminders))return settings.reminders.map((row,index)=>({...row,slot:row.slot??index}));
  const count=settings.dailyAmount||1,[h,m]=(settings.time||'08:00').split(':').map(Number),start=h*60+m;
- reminderDraft=Array.from({length:count},(_,i)=>({mode:settings.notificationMode||'fixed',time:minuteTime(Math.min(1439,start+Math.floor((1440-start)*i/count))),period:settings.notificationPeriod||'morning',start:settings.randomStart||'08:00',end:settings.randomEnd||'21:00'}));
+ return Array.from({length:count},(_,slot)=>({slot,mode:settings.notificationMode||'fixed',time:minuteTime(Math.min(1439,start+Math.floor((1440-start)*slot/count))),period:settings.notificationPeriod||'morning',start:settings.randomStart||'08:00',end:settings.randomEnd||'21:00'}));
 }
+function initialiseReminders(settings){if(reminderDraftOwner===user.id&&reminderDraft)return;reminderDraftOwner=user.id;reminderDraft=savedReminderRows(settings)}
 function reminderDescription(row){return row.mode==='fixed'?'at '+formatTime(row.time):row.mode==='period'?'in the '+reminderPeriods[row.period].label.toLowerCase():'at a random time between '+formatTime(row.start)+' and '+formatTime(row.end)}
-function reminderShort(row){return row.mode==='fixed'?formatTime(row.time):row.mode==='period'?reminderPeriods[row.period].label:'Random time'}
+function reminderShort(row){return row.mode==='fixed'?formatTime(row.time):row.mode==='period'?reminderPeriods[row.period].label:formatTime(row.start)+'–'+formatTime(row.end)}
 function notificationSummary(settings){
- if(settings.notificationsEnabled===false)return 'Notifications are off. Your chosen times are saved.';
- if(reminderDraft.length>3)return `Your first notification is set ${reminderDescription(reminderDraft[0])}, with ${reminderDraft.length-1} more reminders below.`;
- return 'You’ll get '+(reminderDraft.length===1?'a notification ':'notifications ')+reminderDraft.map(reminderDescription).join(reminderDraft.length===2?' and ':', ')+'.';
+ const rows=savedReminderRows(settings);if(!rows.length)return 'No notifications saved. Add one when you’re ready.';
+ if(settings.notificationsEnabled===false)return 'Notifications are off. Your saved times are kept below.';
+ if(rows.length>3)return `Your first notification is set ${reminderDescription(rows[0])}, with ${rows.length-1} more saved below.`;
+ return 'Your '+(rows.length===1?'notification is set ':'notifications are set ')+rows.map(reminderDescription).join(rows.length===2?' and ':', ')+'.';
 }
-async function persistReminders(){const snapshot=reminderDraft.map(row=>({...row}));await saveSettings({reminders:snapshot})}
-async function updateReminder(index,patch){
- reminderDraft[index]={...reminderDraft[index],...patch};renderSettings();
- try{await persistReminders()}catch(e){const target=$('#reminderstatus'+index);if(target)target.textContent=e.message;toast(e.message)}
+function updateReminder(index,patch){reminderDraft[index]={...reminderDraft[index],...patch};reminderNotice='';renderSettings()}
+function startReminderEdit(slot){if(reminderSaving||editingReminderSlot!==null)return;reminderDraft=savedReminderRows();editingReminderSlot=slot;reminderNotice='';renderSettings()}
+function cancelReminderEdit(){if(reminderSaving)return;editingReminderSlot=null;reminderDraft=null;reminderNotice='';renderSettings()}
+async function saveNotification(index){
+ if(reminderSaving)return;
+ const row={...reminderDraft[index]},rows=savedReminderRows().filter(item=>item.slot!==row.slot);rows.push(row);rows.sort((a,b)=>a.slot-b.slot);
+ reminderSaving=true;renderSettings();
+ try{await saveSettings({reminders:rows});editingReminderSlot=null;reminderDraft=null;reminderError=false;reminderNotice='Notification saved.';toast('Notification saved')}catch(e){reminderError=true;reminderNotice=e.message}finally{reminderSaving=false;renderSettings()}
+}
+async function deleteNotification(slot){
+ if(reminderSaving||editingReminderSlot!==null)return;reminderSaving=true;renderSettings();
+ try{await saveSettings({reminders:savedReminderRows().filter(row=>row.slot!==slot)});reminderDraft=null;reminderError=false;reminderNotice='Notification deleted.';toast('Notification deleted')}catch(e){reminderError=true;reminderNotice=e.message}finally{reminderSaving=false;renderSettings()}
+}
+function addNotification(){
+ if(reminderSaving||editingReminderSlot!==null)return;
+ reminderDraft=savedReminderRows();const usedSlots=new Set(reminderDraft.map(row=>row.slot)),slot=Array.from({length:user.settings.dailyAmount||1},(_,i)=>i).find(i=>!usedSlots.has(i));if(slot===undefined)return;
+ const usedTimes=new Set(reminderDraft.filter(row=>row.mode==='fixed').map(row=>row.time)),previous=reminderDraft.at(-1),[h,m]=(previous?.time||'08:00').split(':').map(Number);let next=Math.min(1439,h*60+m+60);while(usedTimes.has(minuteTime(next)))next=(next+1439)%1440;
+ reminderDraft.push({slot,mode:'fixed',time:minuteTime(next),start:'08:00',end:'21:00',period:'morning'});reminderDraft.sort((a,b)=>a.slot-b.slot);editingReminderSlot=slot;reminderNotice='';renderSettings();
 }
 function closeReminderMenu(fromNavigation=false){const menu=$('#reminderMenu');if(menu)menu.hidden=true;document.querySelectorAll('[data-reminder-menu]').forEach(b=>b.setAttribute('aria-expanded','false'));reminderMenuKind=null;if(!fromNavigation&&history.state?.route?.menu)history.back()}
 function afterReminderMenu(action){if(!reminderMenuKind)return action();window.addEventListener('popstate',()=>navigationQueue.then(action),{once:true});closeReminderMenu()}
@@ -194,33 +207,31 @@ function openReminderMenu(kind,trigger,track=true){
  (menu.querySelector('[aria-checked=true]')||menu.querySelector('button')).focus();
 }
 document.addEventListener('click',e=>{if(reminderMenuKind&&!e.target.closest('.reminder-controls'))closeReminderMenu()});
-const clockIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
-function timeField(id,label,value){return `<div class="time-setting"><span id="${id}label">${label}</span><button class="time-trigger" type="button" data-time-target="${id}" aria-haspopup="dialog" aria-labelledby="${id}label ${id}display">${clockIcon}<span id="${id}display">${esc(formatTime(value))}</span><span aria-hidden="true">⌄</span></button><input id="${id}" data-reminder-input type="hidden" value="${esc(value)}"></div>`}
-function reminderEditor(row,index,count){
- const prefix='reminder-'+index+'-';
- return `<div class="reminder-editor"><strong>Remind me at…</strong><div class="reminder-controls"><button class="reminder-type" data-reminder-menu="mode" data-reminder-index="${index}" aria-label="Reminder type for question ${index+1}: ${reminderLabels[row.mode]}" aria-haspopup="menu" aria-expanded="false">${reminderLabels[row.mode]}<span aria-hidden="true">⌄</span></button>${index===0&&count>1?`<button class="add-reminder" id="addreminder" ${reminderDraft.length>=count?'disabled':''}><span aria-hidden="true">+</span> Add another notification</button>`:''}</div>${row.mode==='fixed'?timeField(prefix+'time','Time',row.time):row.mode==='random'?`<div class="notification-window">${timeField(prefix+'start','From',row.start)}${timeField(prefix+'end','Until',row.end)}</div><button class="textbtn" data-save-window="${index}">Save time window</button>`:`<div class="reminder-controls period-controls"><button class="reminder-type" data-reminder-menu="period" data-reminder-index="${index}" aria-label="Time of day for question ${index+1}" aria-haspopup="menu" aria-expanded="false">${reminderPeriods[row.period].label}<span aria-hidden="true">⌄</span></button></div><p>${reminderPeriods[row.period].hours}</p>`}<p class="reminder-error" id="reminderstatus${index}" role="status"></p></div>`;
+const INLINE_WHEEL_ROW=40,inlineWheelTimers=new Map();
+function inlineTimeWheels(row,index,field,label=''){
+ const [hour,minute]=row[field].split(':');
+ return `<div class="inline-time-pair">${label?`<strong class="inline-pair-label">${label}</strong>`:''}<div class="inline-pair-columns">${[['hour',24,hour,'Hour'],['minute',60,minute,'Minute']].map(([kind,count,value,title])=>{const id=`inline-${index}-${field}-${kind}`;return `<div class="inline-wheel-column"><span id="${id}-label">${title}</span><div class="inline-wheel-frame"><div class="inline-time-wheel" role="listbox" tabindex="0" aria-labelledby="${id}-label" data-inline-wheel data-reminder-index="${index}" data-field="${field}" data-kind="${kind}" data-value="${value}" id="${id}">${Array.from({length:count},(_,number)=>String(number).padStart(2,'0')).map(v=>`<div class="inline-time-option" role="option" id="${id}-${v}" data-value="${v}" aria-selected="${v===value}">${v}</div>`).join('')}</div></div></div>`}).join('')}</div></div>`;
 }
-let timeTarget=null,timeHour='08',timeMinute='00';
-const timeWheelTimers=new Map(),WHEEL_ROW=48;
-function updateWheelSelection(container,kind){
- const max=kind==='hour'?23:59,index=Math.max(0,Math.min(max,Math.round(container.scrollTop/WHEEL_ROW))),value=String(index).padStart(2,'0');
- if(kind==='hour')timeHour=value;else timeMinute=value;
- container.setAttribute('aria-activedescendant',kind+'-option-'+value);
- container.querySelectorAll('[role=option]').forEach((option,i)=>{option.setAttribute('aria-selected',String(i===index));option.style.opacity=Math.abs(i-index)>1?'.25':i===index?'1':'.55'});
- $('#timepreview').textContent=formatTime(timeHour+':'+timeMinute);return index;
+function selectInlineWheel(wheel){
+ const index=Number(wheel.dataset.reminderIndex),field=wheel.dataset.field,kind=wheel.dataset.kind,max=kind==='hour'?23:59,value=Math.max(0,Math.min(max,Math.round(wheel.scrollTop/INLINE_WHEEL_ROW))),text=String(value).padStart(2,'0');
+ const row=reminderDraft[index];if(!row)return value;let [hour,minute]=row[field].split(':');if(kind==='hour')hour=text;else minute=text;row[field]=hour+':'+minute;
+ wheel.setAttribute('aria-activedescendant',wheel.id+'-'+text);wheel.querySelectorAll('[role=option]').forEach((option,i)=>{option.setAttribute('aria-selected',String(i===value));option.style.opacity=i===value?'1':'.4'});return value;
 }
-function renderTimeOptions(){
- for(const [id,kind,count,value] of [['timehours','hour',24,timeHour],['timeminutes','minute',60,timeMinute]]){
-  const container=$('#'+id);container.setAttribute('role','listbox');container.setAttribute('tabindex','0');container.innerHTML=Array.from({length:count},(_,i)=>String(i).padStart(2,'0')).map(v=>`<div class="time-wheel-option" role="option" id="${kind}-option-${v}" data-wheel-value="${v}" aria-selected="${v===value}">${v}</div>`).join('');
-  container.onscroll=()=>{if(!$('#timeDialog').open)return;const index=updateWheelSelection(container,kind);clearTimeout(timeWheelTimers.get(id));timeWheelTimers.set(id,setTimeout(()=>{if($('#timeDialog').open&&Math.abs(container.scrollTop-index*WHEEL_ROW)>.5)container.scrollTo({top:index*WHEEL_ROW,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'})},140))};
-  container.onclick=e=>{const option=e.target.closest('[data-wheel-value]');if(option)container.scrollTo({top:Number(option.dataset.wheelValue)*WHEEL_ROW,behavior:'smooth'})};
-  container.onkeydown=e=>{const steps={ArrowUp:-1,ArrowDown:1,PageUp:-5,PageDown:5};if(e.key in steps||e.key==='Home'||e.key==='End'){e.preventDefault();const current=kind==='hour'?Number(timeHour):Number(timeMinute),index=e.key==='Home'?0:e.key==='End'?count-1:Math.max(0,Math.min(count-1,current+steps[e.key]));container.scrollTop=index*WHEEL_ROW;updateWheelSelection(container,kind)}};
- }
- $('#timepreview').textContent=formatTime(timeHour+':'+timeMinute);
+function bindInlineWheels(){
+ document.querySelectorAll('[data-inline-wheel]').forEach(wheel=>{
+  if(wheel.dataset.bound||!wheel.getClientRects().length)return;wheel.dataset.bound='true';
+  wheel.scrollTop=Number(wheel.dataset.value)*INLINE_WHEEL_ROW;selectInlineWheel(wheel);
+  wheel.onscroll=()=>{if(!wheel.isConnected)return;const value=selectInlineWheel(wheel);clearTimeout(inlineWheelTimers.get(wheel.id));inlineWheelTimers.set(wheel.id,setTimeout(()=>{if(wheel.isConnected&&Math.abs(wheel.scrollTop-value*INLINE_WHEEL_ROW)>.5)wheel.scrollTo({top:value*INLINE_WHEEL_ROW,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'})},120))};
+  wheel.onclick=e=>{const option=e.target.closest('[data-value]');if(option&&option!==wheel)wheel.scrollTo({top:Number(option.dataset.value)*INLINE_WHEEL_ROW,behavior:'smooth'})};
+  wheel.onkeydown=e=>{const max=wheel.dataset.kind==='hour'?23:59,steps={ArrowUp:-1,ArrowDown:1,PageUp:-5,PageDown:5};if(e.key in steps||e.key==='Home'||e.key==='End'){e.preventDefault();const current=Math.round(wheel.scrollTop/INLINE_WHEEL_ROW),next=e.key==='Home'?0:e.key==='End'?max:Math.max(0,Math.min(max,current+steps[e.key]));wheel.scrollTop=next*INLINE_WHEEL_ROW;selectInlineWheel(wheel)}};
+ });
 }
-function openTimePicker(id){if(reminderMenuKind)return afterReminderMenu(()=>openTimePicker(id));if(!$('#'+id))return;timeTarget=id;[timeHour,timeMinute]=$('#'+id).value.split(':');$('#timetitle').textContent=$('#'+id+'label').textContent;renderTimeOptions();openAppDialog($('#timeDialog'));requestAnimationFrame(()=>{for(const [id,kind,value] of [['timehours','hour',timeHour],['timeminutes','minute',timeMinute]]){const container=$('#'+id);container.scrollTop=Number(value)*WHEEL_ROW;updateWheelSelection(container,kind)}})}
-$('#canceltime').onclick=()=>$('#timeDialog').close();
-$('#applytime').onclick=()=>{updateWheelSelection($('#timehours'),'hour');updateWheelSelection($('#timeminutes'),'minute');const input=$('#'+timeTarget);if(input){input.value=timeHour+':'+timeMinute;$('#'+timeTarget+'display').textContent=formatTime(input.value);input.dispatchEvent(new Event('change',{bubbles:true}))}$('#timeDialog').close()};
+function reminderEditor(row,index){
+ return `<article class="notification-editor" aria-busy="${reminderSaving}"><div class="notification-editor-title"><strong>Question ${row.slot+1}</strong><span>Unsaved changes</span></div><div class="reminder-editor"><strong>Remind me at…</strong><div class="reminder-controls"><button class="reminder-type" data-reminder-menu="mode" data-reminder-index="${index}" aria-label="Reminder type for question ${row.slot+1}: ${reminderLabels[row.mode]}" aria-haspopup="menu" aria-expanded="false" ${reminderSaving?'disabled':''}>${reminderLabels[row.mode]}<span aria-hidden="true">⌄</span></button></div>${row.mode==='fixed'?inlineTimeWheels(row,index,'time'):row.mode==='random'?`<div class="inline-window-pairs">${inlineTimeWheels(row,index,'start','From')}${inlineTimeWheels(row,index,'end','Until')}</div>`:`<div class="reminder-controls"><button class="reminder-type" data-reminder-menu="period" data-reminder-index="${index}" aria-label="Time of day for question ${row.slot+1}" aria-haspopup="menu" aria-expanded="false" ${reminderSaving?'disabled':''}>${reminderPeriods[row.period].label}<span aria-hidden="true">⌄</span></button></div><p>${reminderPeriods[row.period].hours}</p>`}<div class="notification-editor-actions"><button class="primary" data-save-notification="${index}" ${reminderSaving?'disabled':''}>${reminderSaving?'Saving…':'Save notification'}</button><button class="textbtn" id="cancelnotification" ${reminderSaving?'disabled':''}>Cancel</button></div></div></article>`;
+}
+function savedNotificationCard(row){
+ return `<article class="saved-notification"><div class="saved-notification-head"><strong>Question ${row.slot+1}</strong><span class="notification-saved-label">Saved</span></div><div class="saved-notification-time">${reminderShort(row)}</div><p>${row.mode==='fixed'?'Every day · Set time':row.mode==='period'?'A random time · '+reminderPeriods[row.period].hours:'A random time in this window'}</p><div class="saved-notification-actions"><button data-edit-notification="${row.slot}" ${reminderSaving||editingReminderSlot!==null?'disabled':''}>Edit</button><button data-delete-notification="${row.slot}" ${reminderSaving||editingReminderSlot!==null?'disabled':''}>Delete</button></div></article>`;
+}
 function settingCard(id,icon,title,subtitle,body){return `<details class="setting-card" data-setting-card="${id}" ${settingsOpen.has(id)?'open':''}><summary><span class="setting-symbol" aria-hidden="true">${icon}</span><span><strong>${title}</strong><small>${subtitle}</small></span><span class="setting-chevron" aria-hidden="true">›</span></summary><div class="setting-body">${body}</div></details>`}
 function accountAction(id,label,kind){
  const paths={name:'<path d="m15 4 5 5M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15l-1 6Z"/>',email:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/>',password:'<circle cx="8" cy="9" r="4"/><path d="m11 12 8 8m-4-4 3-3m-1 5 3-3"/>'};
@@ -230,15 +241,16 @@ function renderSettings(){
  renderHeaderProfile();
  const s=user.settings,c=FancyDesign.colours({...s,theme}),fonts=FancyDesign.fonts;initialiseReminders(s);
  const design=`<div class="setting"><label>Appearance<button class="theme-slider" id="settingsTheme" data-theme-slider role="switch" aria-checked="${theme==='dark'}" aria-label="Dark mode"><span class="theme-thumb" aria-hidden="true"></span><span class="theme-sun" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></span><span class="theme-moon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.4 14A8.5 8.5 0 0 1 10 3.6 8.5 8.5 0 1 0 20.4 14Z"/></svg></span></button></label></div><div class="setting"><strong>Colours</strong><div class="colour-slots"><button class="colour-slot" id="editaccent"><i style="background:${c.accent}"></i>Accent</button><button class="colour-slot" id="editbackground"><i style="background:${c.background}"></i>Background</button></div><p>Set the colours for ${theme} mode. Light and dark keep their own palettes.</p></div><div class="setting"><strong>Your font</strong><div class="font-grid">${Object.entries(fonts).map(([key,font])=>`<button class="font-card" data-font="${key}" aria-pressed="${(s.font||'clean')===key}" style="font-family:${font.family.replaceAll('"','&quot;')}"><span>A little curious</span><small>${font.label}</small></button>`).join('')}</div><label class="range-label" for="fontSize">Overall font size <output id="fontSizeValue">${s.fontSize||100}%</output></label><input id="fontSize" type="range" min="75" max="160" step="5" value="${s.fontSize||100}"><div class="design-preview"><strong>A little more curious.</strong><br>A new thing to know, in your own style.</div><button class="textbtn" id="resetdesign">Reset design</button></div>`;
- const count=s.dailyAmount||1,missing=Math.max(0,count-reminderDraft.length);
- const notifications=`<div class="setting"><label for="notificationsEnabled">Question notifications<input class="notification-tick" type="checkbox" id="notificationsEnabled" ${s.notificationsEnabled!==false?'checked':''}></label><p>Your preferences are saved. Phone delivery will be enabled in the Android app.</p></div><div class="setting"><label class="range-label" for="dailyAmount">Different questions per day <output id="dailyAmountValue">${count}</output></label><input type="range" id="dailyAmount" min="1" max="10" step="1" value="${count}"><p>Each question has its own notification time.</p></div><div class="setting notification-schedules"><p class="notification-summary" role="status">${notificationSummary(s)}</p>${reminderDraft.map((row,index)=>index===0?reminderEditor(row,index,count):`<details class="extra-reminder" data-reminder-row="${index}" ${expandedReminders.has(index)?'open':''}><summary><span>Question ${index+1}</span><span class="reminder-summary-time">${reminderShort(row)}</span><span class="extra-chevron" aria-hidden="true">⌄</span></summary>${reminderEditor(row,index,count)}</details>`).join('')}<div id="reminderMenu" class="reminder-menu" role="menu" aria-label="Reminder choices" hidden></div>${missing?`<p class="missing-reminders">Add ${missing} more ${missing===1?'notification':'notifications'} for your remaining ${missing===1?'question':'questions'}.</p>`:''}</div>`;
+ const count=s.dailyAmount||1,savedRows=savedReminderRows(s),missing=Math.max(0,count-savedRows.length),editorIndex=reminderDraft.findIndex(row=>row.slot===editingReminderSlot);
+ const swoop='<svg class="notification-swoop" viewBox="0 0 32 32" aria-hidden="true"><path d="M4.5 17.5C7 21 9 23.5 11.7 22.5C15.5 21 20 11 27.5 6.5"/></svg>';
+ const notifications=`<div class="setting"><label for="notificationsEnabled">Question notifications<span class="notification-toggle"><input class="notification-tick" type="checkbox" id="notificationsEnabled" ${s.notificationsEnabled!==false?'checked':''}>${swoop}</span></label><p>Your preferences are saved. Phone delivery will be enabled in the Android app.</p></div><div class="setting"><label class="range-label" for="dailyAmount">Different questions per day <output id="dailyAmountValue">${count}</output></label><input type="range" id="dailyAmount" min="1" max="10" step="1" value="${count}" ${editingReminderSlot!==null||reminderSaving?'disabled':''}><p>Each question has its own notification time.</p></div><div class="setting notification-schedules"><p class="notification-summary">${notificationSummary(s)}</p><p class="notification-save-status ${reminderError?'is-error':''}" role="${reminderError?'alert':'status'}">${esc(reminderNotice)}</p>${savedRows.map(row=>row.slot===editingReminderSlot?reminderEditor(reminderDraft[editorIndex],editorIndex):savedNotificationCard(row)).join('')}${editingReminderSlot!==null&&!savedRows.some(row=>row.slot===editingReminderSlot)?reminderEditor(reminderDraft[editorIndex],editorIndex):''}<div id="reminderMenu" class="reminder-menu" role="menu" aria-label="Reminder choices" hidden></div>${missing?`<button class="secondary-button add-notification-button" id="addreminder" ${editingReminderSlot!==null||reminderSaving?'disabled':''}>+ ${savedRows.length?'Add another notification':'Add notification'}</button><p class="missing-reminders">${missing} ${missing===1?'question has':'questions have'} no saved notification.</p>`:''}</div>`;
  const questions=`<div class="setting"><strong>Your topics</strong><p>${user.profile?.interests?.length?user.profile.interests.map(esc).join(', ')+(user.profile.includeEverything?' · plus a bit of everything':''):'A bit of everything'}</p><button class="secondary-button" id="editprofile">Edit my topics</button></div><div class="setting"><label class="range-label" for="answerCount">Multiple-choice answers <output id="answerCountValue">${s.answerCount||4}</output></label><input id="answerCount" type="range" min="2" max="10" step="1" value="${s.answerCount||4}"><p>Default: 4. New questions will have your chosen number of options. Today’s question and saved questions keep their original options.</p></div>`;
  const picture=user.avatar?`<img class="avatar" src="${esc(user.avatar)}" alt="Your profile picture">`:`<span class="avatar" aria-label="No profile picture">${esc((user.profile?.name||'?').slice(0,1).toUpperCase())}</span>`;
  const account=`<div class="setting"><div class="avatar-row"><div>${picture}</div><div class="profile-details"><strong>${esc(user.profile?.name||'Your profile')}</strong><div class="picture-actions"><label class="picture-button picture-action" for="avatarfile">Change picture</label>${user.avatar?'<button class="picture-action" id="removeavatar">Remove picture</button>':''}</div><input class="sr-only" id="avatarfile" type="file" accept="image/jpeg,image/png,image/webp"></div></div><p id="avatarstatus" role="status"></p>${accountAction('editname','Change name','name')}</div><div class="setting"><strong>Email & password</strong><p class="account-email">${user.email?esc(user.email):'Your old username: '+esc(user.legacyUsername)}</p><div class="account-actions">${accountAction('editemail',user.email?'Change email':'Add email for recovery','email')}${user.email?accountAction('recoverfromsettings','Change password','password'):''}</div></div>`;
- $('#settings').innerHTML=`<div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your kind<br><em>of curious.</em></h1>${settingCard('design','◉','Design','Colours, fonts & text size',design)}${settingCard('notifications','♧','Notifications','When & how often',notifications)}${settingCard('questions','✧','Question preferences','Topics & multiple-choice answers',questions)}${settingCard('account','☺','My account','Picture, name, email & password',account)}<div class="settings-savebar"><button class="primary" id="saveallsettings">Save settings</button><p id="settingssavestatus" role="status">Changes also save automatically.</p></div><button class="secondary-button settings-signout" id="logout">Sign out</button>`;
- document.querySelectorAll('[data-setting-card]').forEach(d=>d.ontoggle=()=>{if(d.open)settingsOpen.add(d.dataset.settingCard);else settingsOpen.delete(d.dataset.settingCard)});
- document.querySelectorAll('[data-time-target]').forEach(b=>b.onclick=()=>openTimePicker(b.dataset.timeTarget));
- $('#saveallsettings').onclick=async()=>{const button=$('#saveallsettings');button.disabled=true;$('#settingssavestatus').textContent='Saving…';try{const patch={fontSize:Number($('#fontSize').value),dailyAmount:Number($('#dailyAmount').value),answerCount:Number($('#answerCount').value),notificationsEnabled:$('#notificationsEnabled').checked,reminders:reminderDraft.map(row=>({...row}))};await saveSettings(patch);$('#settingssavestatus').textContent='Settings saved.';toast('Settings saved')}catch(e){$('#settingssavestatus').textContent=e.message}finally{if($('#saveallsettings'))$('#saveallsettings').disabled=false}};
+ $('#settings').innerHTML=`<div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your kind<br><em>of curious.</em></h1>${settingCard('design','◉','Design','Colours, fonts & text size',design)}${settingCard('notifications','♧','Notifications','When & how often',notifications)}${settingCard('questions','✧','Question preferences','Topics & multiple-choice answers',questions)}${settingCard('account','☺','My account','Picture, name, email & password',account)}<div class="settings-savebar"><button class="primary" id="saveallsettings">Save settings</button><p id="settingssavestatus" role="status">Other settings save automatically.</p></div><button class="secondary-button settings-signout" id="logout">Sign out</button>`;
+ document.querySelectorAll('[data-setting-card]').forEach(d=>d.ontoggle=()=>{if(d.open){settingsOpen.add(d.dataset.settingCard);if(d.dataset.settingCard==='notifications')requestAnimationFrame(bindInlineWheels)}else settingsOpen.delete(d.dataset.settingCard)});
+
+ $('#saveallsettings').onclick=async()=>{const button=$('#saveallsettings');button.disabled=true;$('#settingssavestatus').textContent='Saving…';try{const patch={fontSize:Number($('#fontSize').value),dailyAmount:Number($('#dailyAmount').value),answerCount:Number($('#answerCount').value),notificationsEnabled:$('#notificationsEnabled').checked,reminders:savedReminderRows()};await saveSettings(patch);$('#settingssavestatus').textContent=editingReminderSlot!==null?'Settings saved. Use Save notification for your notification edits.':'Settings saved.';toast('Settings saved')}catch(e){$('#settingssavestatus').textContent=e.message}finally{if($('#saveallsettings'))$('#saveallsettings').disabled=false}};
  $('#settingsTheme').onclick=()=>$('#theme').click();
  const openColours=target=>{FancyDesign.wheel($('#colourDialog'),{...s,theme},async patch=>{await saveSettings(patch);renderSettings()});rememberNavigation({...visibleRoute,dialog:'colourDialog'});if(target==='background')$('#colourDialog [data-colour="background"]').click()};$('#editaccent').onclick=()=>openColours('accent');$('#editbackground').onclick=()=>openColours('background');
  document.querySelectorAll('[data-font]').forEach(b=>b.onclick=async()=>{try{await saveSettings({font:b.dataset.font});renderSettings()}catch(e){toast(e.message)}});
@@ -248,19 +260,14 @@ function renderSettings(){
  for(const key of ['answerCount']){$('#'+key).oninput=e=>$('#'+key+'Value').textContent=e.target.value;$('#'+key).onchange=async e=>{try{await saveSettings({[key]:Number(e.target.value)})}catch(err){toast(err.message);renderSettings()}}}
  $('#notificationsEnabled').onchange=async e=>{try{await saveSettings({notificationsEnabled:e.target.checked});renderSettings()}catch(err){toast(err.message);renderSettings()}};
  document.querySelectorAll('[data-reminder-menu]').forEach(b=>b.onclick=()=>openReminderMenu(b.dataset.reminderMenu,b));
- document.querySelectorAll('[data-reminder-row]').forEach(details=>details.ontoggle=()=>{const index=Number(details.dataset.reminderRow);if(details.open)expandedReminders.add(index);else expandedReminders.delete(index)});
+ bindInlineWheels();
+ document.querySelectorAll('[data-save-notification]').forEach(button=>button.onclick=()=>{document.querySelectorAll('[data-inline-wheel]').forEach(selectInlineWheel);saveNotification(Number(button.dataset.saveNotification))});
+ document.querySelectorAll('[data-edit-notification]').forEach(button=>button.onclick=()=>startReminderEdit(Number(button.dataset.editNotification)));
+ document.querySelectorAll('[data-delete-notification]').forEach(button=>button.onclick=()=>deleteNotification(Number(button.dataset.deleteNotification)));
+ if($('#cancelnotification'))$('#cancelnotification').onclick=cancelReminderEdit;
+ if($('#addreminder'))$('#addreminder').onclick=addNotification;
  $('#dailyAmount').oninput=e=>$('#dailyAmountValue').textContent=e.target.value;
- $('#dailyAmount').onchange=async e=>{const dailyAmount=Number(e.target.value);reminderDraft=reminderDraft.slice(0,dailyAmount);try{await saveSettings({dailyAmount,reminders:reminderDraft.map(row=>({...row}))});renderSettings()}catch(err){toast(err.message);renderSettings()}};
- if($('#addreminder'))$('#addreminder').onclick=async()=>{
-  if(reminderDraft.length>=(user.settings.dailyAmount||1))return;
-  const used=new Set(reminderDraft.filter(row=>row.mode==='fixed').map(row=>row.time)),previous=reminderDraft.at(-1),[hour,minute]=previous.time.split(':').map(Number);let next=Math.min(1439,hour*60+minute+60);while(used.has(minuteTime(next)))next=(next+1439)%1440;
-  const index=reminderDraft.length;reminderDraft.push({mode:'fixed',time:minuteTime(next),start:'08:00',end:'21:00',period:'morning'});expandedReminders.add(index);renderSettings();try{await persistReminders()}catch(e){toast(e.message)}
- };
- document.querySelectorAll('[data-reminder-input]').forEach(input=>input.onchange=async()=>{
-  const [,indexText,field]=input.id.match(/^reminder-(\d+)-(time|start|end)$/),index=Number(indexText);reminderDraft[index][field]=input.value;
-  if(field==='time')await updateReminder(index,{time:input.value});
- });
- document.querySelectorAll('[data-save-window]').forEach(button=>button.onclick=async()=>{const index=Number(button.dataset.saveWindow);try{await persistReminders();renderSettings();toast('Time window saved')}catch(e){$('#reminderstatus'+index).textContent=e.message}});
+ $('#dailyAmount').onchange=async e=>{const dailyAmount=Number(e.target.value);try{await saveSettings({dailyAmount,reminders:savedReminderRows().filter(row=>row.slot<dailyAmount)});reminderDraft=null;renderSettings()}catch(err){toast(err.message);renderSettings()}};
  $('#editprofile').onclick=()=>showOnboarding(true,true);$('#editname').onclick=()=>showOnboarding(true);$('#editemail').onclick=()=>showEmailSetup(false);if($('#recoverfromsettings'))$('#recoverfromsettings').onclick=showForgot;
  $('#avatarfile').onchange=async e=>{const file=e.target.files[0];if(!file)return;$('#avatarstatus').textContent='Saving your picture…';try{const avatar=await resizeAvatar(file);const data=await api('/avatar',{method:'PUT',body:{avatar}});user.avatar=data.avatar;renderHeaderProfile();renderSettings();toast('Profile picture saved')}catch(err){$('#avatarstatus').textContent=err.message}};
  if($('#removeavatar'))$('#removeavatar').onclick=async()=>{try{await api('/avatar',{method:'DELETE'});user.avatar=null;renderHeaderProfile();renderSettings()}catch(e){toast(e.message)}};
