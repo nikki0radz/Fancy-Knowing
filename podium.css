@@ -34,3 +34,7 @@ body:has(#home:not([hidden])) #headerprofile{display:none}
 #home .update-bubble{background:var(--input)}
 .hub-drama-item,.hub-drama-item:nth-of-type(even){background:var(--panel)}
 @media(max-width:370px){#home .cloud-portrait{padding:22px 12px 20px}#home .cloud-portrait .home-greeting{font-size:calc(31px * var(--font-scale,1))}#home .dashboard-actions{gap:7px}#home .dashboard-actions>button{padding:13px 5px 11px}#home .dashboard-actions strong{font-size:calc(11px * var(--font-scale,1))}#home .dashboard-stats>div{padding:0 6px}}
+/* History keeps its category and recall action at opposite ends of the card. */
+#bank.history-view .bankitem-footer{justify-content:space-between;width:auto;max-width:none;margin:0 16px 14px;gap:12px;background:transparent;border:0;border-radius:0;overflow:visible}
+#bank.history-view .bankitem-footer .topic{max-width:50%;min-width:0;background:var(--input);border:1px solid var(--line);border-radius:99px;padding:8px 11px}
+#bank.history-view .bankitem-footer .textbtn{margin-left:auto;border:1px solid var(--line);border-radius:99px;padding:8px 11px;background:var(--input)}
