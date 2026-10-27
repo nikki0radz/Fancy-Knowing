@@ -68,10 +68,11 @@ export async function quizAllowance(env,user){
 }
 export async function gamesApi(request,env,user,body){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- const invite=path.match(/^\/api\/challenges\/([a-f0-9]{64})(?:\/(join|start|answer|verdict))?$/);
+ const invite=path.match(/^\/api\/challenges\/([a-f0-9]{64})(?:\/(join|start|answer|verdict|comments))?$/);
  if(invite){
   let game=await env.DB.prepare("SELECT * FROM trivia_games WHERE invite_token=? AND kind='challenge'").bind(invite[1]).first();if(!game)fail('This challenge could not be found.',404);
   let token=guestToken(request),player=await playerFor(env,game.id,user,token),headers={};
+  if(invite[2]==='comments')return quizComments(request,env,game,player,body);
   if(method==='POST'&&invite[2]==='join'&&!player){
    if(game.group_mode&&game.closed_at||!game.group_mode&&game.completed_at)fail('This quiz is closed to new players.',409);if(game.invitee_id&&game.invitee_id!==user?.id)fail('Sign in to the account invited to this challenge.',403);
    const input=await body(request),name=displayName(input.name||JSON.parse(user?.profile||'{}').name||'Player');
@@ -123,8 +124,9 @@ export async function gamesApi(request,env,user,body){
    await env.DB.batch(commands);created=true;const game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(id).first();if(group&&friendIds.length)await inviteFriends(env,game,user,friendIds);return json({game:await summary(env,game,await playerFor(env,id,user,null),url.origin,user?.id,JSON.parse(user?.settings||'{}').units||'metric')});
   }finally{try{if(reserved&&!created)await env.DB.prepare('UPDATE budgets SET count=MAX(0,count-1) WHERE key=?').bind(quotaKey).run()}finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}}
  }
- const match=path.match(/^\/api\/games\/([a-f0-9-]{36})(?:\/(start|answer|verdict|share|invite|close|reopen))?$/);if(match){
+ const match=path.match(/^\/api\/games\/([a-f0-9-]{36})(?:\/(start|answer|verdict|share|invite|close|reopen|comments))?$/);if(match){
   let game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(match[1]).first();if(!game)fail('Quiz not found.',404);let player=await playerFor(env,game.id,user,null);if(!player&&game.invitee_id!==user.id&&!await env.DB.prepare('SELECT user_id FROM quiz_invitations WHERE game_id=? AND user_id=?').bind(game.id,user.id).first())fail('This is a private game.',403);
+  if(match[2]==='comments')return quizComments(request,env,game,player,body);
   if(method==='POST'&&['share','invite','close','reopen'].includes(match[2])){if(game.creator_id!==user.id)fail('Only the host can manage invitations.',403);if(match[2]==='share')game=await shareRoom(env,game,user);if(match[2]==='invite'){if(!game.group_mode)game=await shareRoom(env,game,user);await inviteFriends(env,game,user,(await body(request)).friendIds)}if(match[2]==='reopen'){if(game.closed_at){const pause=Math.max(0,Date.now()-game.closed_at);await env.DB.batch([env.DB.prepare(`UPDATE ${playerTable(game)} SET question_started_at=question_started_at+? WHERE game_id=? AND completed_at IS NULL AND question_started_at IS NOT NULL AND EXISTS(SELECT 1 FROM trivia_games WHERE id=? AND closed_at=?)`).bind(pause,game.id,game.id,game.closed_at),env.DB.prepare('UPDATE trivia_games SET closed_at=NULL WHERE id=?').bind(game.id)])}game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(game.id).first()}if(match[2]==='close'){await env.DB.prepare('UPDATE trivia_games SET closed_at=COALESCE(closed_at,?) WHERE id=?').bind(Date.now(),game.id).run();game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(game.id).first()}player=await playerFor(env,game.id,user,null);return json({game:await summary(env,game,player,url.origin,user.id,JSON.parse(user.settings).units||'metric')})}
   if(method==='POST'&&match[2]==='verdict')return json(await verdict(env,game,player));
   if(method==='POST'&&match[2]==='start')await startPlayer(env,game,player);else if(method==='POST'&&match[2]==='answer')await answer(env,game,player,await body(request));else if(!(method==='GET'&&!match[2]))fail('Not found.',404);
@@ -139,4 +141,26 @@ async function verdict(env,game,player){
  if(player.verdict)return {verdict:player.verdict};
  const key='verdict:'+player.id,now=Date.now();const lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(key,now+65000,now).first();if(!lock)return {verdict:fallbackVerdict(player.score,game.question_count)};
  try{const line=await scoreVerdict(env,player.score,game.question_count,game.topic);await env.DB.prepare(`UPDATE ${playerTable(game)} SET verdict=COALESCE(verdict,?) WHERE id=?`).bind(line,player.id).run();return {verdict:line}}finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(key).run()}
+}
+
+// Participants see discussion only after finishing: comments may contain answers.
+async function quizComments(request,env,game,player,body){
+ if(!player?.completed_at)fail('Finish this quiz to join the conversation.',403);
+ const authorKey=player.user_id||player.guest_hash,canModerate=player.seat==='host';
+ if(request.method==='POST'){
+  const input=await body(request),text=typeof input.text==='string'?input.text.trim():'';
+  if(!text||text.length>500)fail('Write a comment between 1 and 500 characters.');
+  if(!/^[a-f0-9-]{36}$/.test(input.id||''))fail('Please try sending your comment again.');
+  const existing=await env.DB.prepare('SELECT author_key,game_id FROM quiz_comments WHERE id=?').bind(input.id).first();
+  if(existing){if(existing.author_key!==authorKey||existing.game_id!==game.id)fail('Please try sending your comment again.',409)}
+  else{
+   await budget(env,`quiz-comments:${authorKey}:${Math.floor(Date.now()/3600000)}`,60,Date.now()+2*3600000,'A lot of chatting! Try again in a little while.');
+   await env.DB.prepare('INSERT INTO quiz_comments(id,game_id,author_key,name,text,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING').bind(input.id,game.id,authorKey,player.name,text,Date.now()).run();
+  }
+ }else if(request.method==='DELETE'){
+  const input=await body(request);if(typeof input.id!=='string')fail('Choose a comment.');
+  await env.DB.prepare('DELETE FROM quiz_comments WHERE id=? AND game_id=? AND (author_key=? OR ?=1)').bind(input.id,game.id,authorKey,canModerate?1:0).run();
+ }else if(request.method!=='GET')fail('Not found.',404);
+ const rows=(await env.DB.prepare('SELECT * FROM quiz_comments WHERE game_id=? ORDER BY created_at DESC,id DESC LIMIT 100').bind(game.id).all()).results;
+ return json({comments:rows.reverse().map(c=>({id:c.id,name:c.name,text:c.text,createdAt:c.created_at,mine:c.author_key===authorKey,canDelete:canModerate||c.author_key===authorKey}))},200,{'Cache-Control':'no-store'});
 }
