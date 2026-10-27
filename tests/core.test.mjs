@@ -108,3 +108,11 @@ test('a mismatched generated answer index is rejected even when every option is 
  const {validateAnswerKey}=await import('../worker/core.mjs');const q={options:['Iron','Tungsten','Gold','Lead'],correct:2,correctAnswer:'Tungsten'};
  assert.throws(()=>validateAnswerKey(q),/answer text/);assert.doesNotThrow(()=>validateAnswerKey({...q,correct:1}));
 });
+
+test('answer shuffling preserves the answer and distributes its position',async()=>{
+ const {shuffleAnswers,validateFormat,formatUnits,displayQuestion}=await import('../worker/quiz.mjs');const q={q:'How much?',options:['10 kg','2 kg','3 kg','4 kg'],correct:0,correctAnswer:'10 kg',format:'multiple_choice'},positions=new Set();
+ for(let i=0;i<100;i++){const shuffled=shuffleAnswers(q);positions.add(shuffled.correct);assert.equal(shuffled.options[shuffled.correct],'10 kg');assert.deepEqual(new Set(shuffled.options),new Set(q.options))}assert.equal(positions.size,4);assert.equal(q.correct,0);
+ assert.equal(validateFormat({format:'true_false',options:['False','True']},10),2);assert.throws(()=>validateFormat({format:'true_false',options:['Yes','No']},10));assert.equal(validateFormat({format:'this_or_that',options:['Pokémon','Dinosaur']},10),2);
+ assert.equal(formatUnits('100 °C'),'100 °C');assert.match(formatUnits('100 °C and 10 kg','imperial'),/212 °F \(100 °C\).*22.05 lb \(10 kg\)/);assert.match(formatUnits('273.15 K','imperial'),/32 °F/);assert.match(formatUnits('2 litres','imperial'),/3.52 UK pt/);
+ const converted=displayQuestion(q,'imperial');assert.equal(converted.correct,0);assert.ok(converted.options[0].includes('22.05 lb'));assert.equal(q.options[0],'10 kg');assert.deepEqual(validateSettings({units:'imperial'}),{units:'imperial'});assert.throws(()=>validateSettings({units:'other'}));
+});

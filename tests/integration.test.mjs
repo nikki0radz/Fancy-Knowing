@@ -12,8 +12,9 @@ const triviaUrl='https://quiz.example.test/trivia';
 function vectorFor(text){let seed=2166136261;for(const c of text)seed=Math.imul(seed^c.charCodeAt(0),16777619)>>>0;return Array.from({length:256},()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296-.5})}
 function embeddingResponse(body){return Response.json({data:body.input.map((text,index)=>({index,embedding:vectorFor(text)}))})}
 const aiText=(value,urls=[])=>{if(value&&typeof value==='object'){if(value.options&&value.correctAnswer===undefined)value={...value,correctAnswer:value.options[value.correct]};if(value.questions)value={...value,questions:value.questions.map(q=>({...q,correctAnswer:q.correctAnswer??q.options[q.correct]}))}}return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:typeof value==='string'?value:JSON.stringify(value),annotations:urls.map(url=>({type:'url_citation',url}))}]}]})};
+function verificationFixture(body){if(body.tools&&/^Independently (verify|fact-check)/.test(body.instructions||'')){const input=JSON.parse(body.input);return aiText('Independent primary-source verification.',[input.source||'https://facts.example.test/source',triviaUrl])}return null}
 function generationMock(handler){return async(url,options)=>{
- const body=JSON.parse(options.body);
+ const body=JSON.parse(options.body);const verified=verificationFixture(body);if(verified)return verified;
  if(String(url).endsWith('/embeddings'))return embeddingResponse(body);
  if(body.text?.format?.name==='trivia_quality')return aiText({accepted:true,correctAnswer:JSON.parse(body.input).candidate.correctAnswer,reason:'A clear, unique answer.'});
  const response=await handler(url,options);if(!response.ok)return response;
@@ -23,20 +24,20 @@ function generationMock(handler){return async(url,options)=>{
 }}
 let generatedNumber=0,generatedTopic='Science',generationCalls=0;
 before(async()=>{
- mf=new Miniflare(convertV4MiniflareOptions({modules:['index.mjs','core.mjs','ai.mjs','auth.mjs','profiles.mjs','mail.mjs','memory.mjs','discoveries.mjs','games.mjs','trivia.mjs','friends.mjs'].map(f=>({type:'ESModule',path:new URL('../worker/'+f,import.meta.url).pathname})),compatibilityDate:'2026-10-26',d1Databases:['DB'],bindings:{SIGNUP_CODE:'private-test-code',OPENAI_API_KEY:'test-key',RESEND_API_KEY:'test-resend-key',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>',APP_URL:origin},outboundService:async request=>{
+ mf=new Miniflare(convertV4MiniflareOptions({modules:['index.mjs','core.mjs','ai.mjs','auth.mjs','profiles.mjs','mail.mjs','memory.mjs','discoveries.mjs','games.mjs','trivia.mjs','friends.mjs','quiz.mjs'].map(f=>({type:'ESModule',path:new URL('../worker/'+f,import.meta.url).pathname})),compatibilityDate:'2026-10-26',d1Databases:['DB'],bindings:{SIGNUP_CODE:'private-test-code',OPENAI_API_KEY:'test-key',RESEND_API_KEY:'test-resend-key',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>',APP_URL:origin},outboundService:async request=>{
   if(new URL(request.url).hostname==='api.resend.com'){if(mailFails)return Response.json({error:'sender not verified'},{status:403});sentEmails.push(await request.json());return Response.json({id:crypto.randomUUID()})}
-  if(new URL(request.url).hostname==='api.openai.com'){const body=await request.json();
+  if(new URL(request.url).hostname==='api.openai.com'){const body=await request.json();const verified=verificationFixture(body);if(verified)return verified;
    if(new URL(request.url).pathname.endsWith('/embeddings'))return embeddingResponse(body);
    if(body.tools){generationCalls++;generatedNumber++;generatedTopic=JSON.parse(body.input).topic;return aiText('Fixture quiz and official factual evidence.',[triviaUrl,'https://facts.example.test/source'])}
-   if(body.text?.format?.name==='trivia_pack_review')return aiText({accepted:true,correctAnswers:JSON.parse(body.input).questions.map(q=>q.correctAnswer),reason:'Clear varied quiz.'});
-   if(body.text?.format?.name==='trivia_pack'){const count=body.text.format.schema.properties.questions.minItems,options=body.text.format.schema.properties.questions.items.properties.options.minItems;return aiText({questions:Array.from({length:count},(_,i)=>({topic:generatedTopic,q:`Which archive specimen has catalogue ${generatedNumber}-${i}?`,options:Array.from({length:options},(_,n)=>`Archive specimen ${generatedNumber}-${i}-${n}`),correct:0,explanation:'The archive records this specimen.',source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:`pack-${generatedNumber}-${i}`,subtopic:`archive-${i}`,aliases:[],follow:['Where is it?','Who named it?','How old is it?']}))})}
+   if(['trivia_pack_review','trivia_pack_sensecheck'].includes(body.text?.format?.name))return aiText({checks:JSON.parse(body.input).questions.map(q=>({accepted:true,correctAnswer:q.correctAnswer,reason:'Independently checked.'}))});
+   if(body.text?.format?.name==='trivia_pack'){const input=JSON.parse(body.input),count=body.text.format.schema.properties.questions.minItems;return aiText({questions:Array.from({length:count},(_,i)=>{const format=input.formats[i],size=format==='multiple_choice'?body.text.format.schema.properties.questions.items.anyOf[0].properties.options.minItems:2,options=format==='true_false'?['True','False']:Array.from({length:size},(_,n)=>`Archive specimen ${generatedNumber}-${i}-${n}`);return {format,topic:generatedTopic,q:`Which archive specimen has catalogue ${generatedNumber}-${i}?`,options,correct:0,explanation:'The archive records this specimen.',source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:`pack-${generatedNumber}-${i}`,subtopic:`archive-${i}`,aliases:[],follow:['Where is it?','Who named it?','How old is it?']}})})}
    if(body.text?.format?.name==='trivia_quality')return aiText({accepted:true,correctAnswer:JSON.parse(body.input).candidate.correctAnswer,reason:'Clear fixture.'});
-   if(body.text?.format?.name==='daily_question'){const count=body.text.format.schema.properties.options.minItems;return aiText({topic:generatedTopic,q:`Which specimen has catalogue number ${generatedNumber}?`,options:Array.from({length:count},(_,i)=>`Specimen ${generatedNumber}-${i}`),correct:0,explanation:`It is specimen ${generatedNumber}-0.`,source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:'fixture-fact-'+generatedNumber,subtopic:'fixture-subject-'+generatedNumber,aliases:[],follow:['Where is it?','Who named it?','How old is it?']})}
+   if(body.text?.format?.name==='daily_question'){const count=body.text.format.schema.properties.options.minItems,format=body.text.format.schema.properties.format?.enum?.[0]||'multiple_choice';return aiText({format,topic:generatedTopic,q:`Which specimen has catalogue number ${generatedNumber}?`,options:format==='true_false'?['True','False']:Array.from({length:count},(_,i)=>`Specimen ${generatedNumber}-${i}`),correct:0,explanation:`It is specimen ${generatedNumber}-0.`,source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:'fixture-fact-'+generatedNumber,subtopic:'fixture-subject-'+generatedNumber,aliases:[],follow:['Where is it?','Who named it?','How old is it?']})}
    if(body.text?.format?.name==='learning_topic'){const text=JSON.parse(body.input).proposedTopic;return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(text==='asdfghjkl'?{accepted:false,topic:'',reason:'Try a recognisable topic, such as marine biology.'}:{accepted:true,topic:'Marine biology focused on sharks',reason:'A valid learning topic.'})}]}]})}
   return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'Its gills take oxygen out of the water.'}]}]})};
   return new Response('Unexpected outbound request',{status:500});
  }}));
- db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql','0005_shared_questions.sql','0006_question_slots_memory.sql','0007_trivia_challenges.sql','0008_friends.sql','0009_correct_tungsten.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
+ db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql','0005_shared_questions.sql','0006_question_slots_memory.sql','0007_trivia_challenges.sql','0008_friends.sql','0009_correct_tungsten.sql','0010_quiz_reveal.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
  await db.batch(schema.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const q={topic:'Nature',q:'How many hearts does an octopus have?',options:['One','Two','Three','Four'],correct:2,explanation:'Three. Two serve its gills.',source:'https://www.nhm.ac.uk/',aliases:['3'],concept:'octopus-hearts',follow:['What do its gills do?','Why is its blood blue?','Do the hearts do the same job?']};
@@ -146,18 +147,18 @@ test('design, frequency and question-count settings persist per account; avatars
 test('AI generation requests the selected number of choices and API grading accepts the tenth choice',async()=>{
  const {dailyQuestion}=await import('../worker/ai.mjs');const originalFetch=globalThis.fetch;let count=2;
  globalThis.fetch=generationMock(async(url,options)=>{const request=JSON.parse(options.body);if(!request.tools){assert.equal(request.text.format.schema.properties.options.minItems,count);assert.equal(request.text.format.schema.properties.correct.maximum,count-1)}const q={topic:'Numbers',q:`Which option is number ${count}?`,options:Array.from({length:count},(_,i)=>String(i+1)),correct:count-1,explanation:`It is ${count}.`,source:'https://example.org/number',aliases:[],concept:`number-${count}-options`,follow:['Why?','How?','Where?']};return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:request.tools?'Evidence for the fact.':JSON.stringify(q),annotations:request.tools?[{type:'url_citation',url:q.source}]:[]}]}]})});
- try{for(count of [2,10]){const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test-key'},'2099-02-01',[],count);assert.equal(JSON.parse(row.data).options.length,count);if(count===10){const signed=await login('nicole@example.com','x');const answer=await call(`/questions/${row.id}/answer`,{method:'POST',cookie:signed.cookie,body:{choice:9,attemptId:crypto.randomUUID()}});assert.equal(answer.status,200);assert.equal(answer.data.question.attempt.correct,true)}}}finally{globalThis.fetch=originalFetch}
+ try{for(count of [2,10]){const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test-key'},'2099-02-01',[],count);assert.equal(JSON.parse(row.data).options.length,count);if(count===10){const signed=await login('nicole@example.com','x');const answer=await call(`/questions/${row.id}/answer`,{method:'POST',cookie:signed.cookie,body:{choice:JSON.parse(row.data).correct,attemptId:crypto.randomUUID()}});assert.equal(answer.status,200);assert.equal(answer.data.question.attempt.correct,true)}}}finally{globalThis.fetch=originalFetch}
 });
 test('welcome emails are queued once per signup and delivered without resending on login',async()=>{
  const {deliverWelcome}=await import('../worker/mail.mjs');const originalFetch=globalThis.fetch;let sends=0;
  const row=await db.prepare("SELECT id,email FROM users WHERE email='legacy@example.com'").first();await db.prepare('INSERT INTO email_outbox(user_id,email,created_at) VALUES (?,?,?)').bind(row.id,row.email,Date.now()).run();
- globalThis.fetch=async(url,options)=>{sends++;const body=JSON.parse(options.body);assert.equal(body.to[0],row.email);assert.ok(body.subject.includes('Welcome'));assert.ok(body.text.includes('Forgot password'));return Response.json({id:'welcome-test'})};
+ globalThis.fetch=async(url,options)=>{sends++;const body=JSON.parse(options.body);const verified=verificationFixture(body);if(verified)return verified;assert.equal(body.to[0],row.email);assert.ok(body.subject.includes('Welcome'));assert.ok(body.text.includes('Forgot password'));return Response.json({id:'welcome-test'})};
  try{const env={DB:db,APP_URL:origin,RESEND_API_KEY:'test',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>'};await deliverWelcome(env,row.id);await deliverWelcome(env,row.id);assert.equal(sends,1);assert.ok((await db.prepare('SELECT sent_at FROM email_outbox WHERE user_id=?').bind(row.id).first()).sent_at)}finally{globalThis.fetch=originalFetch}
 });
 test('Gmail bridge uses the protected server-only connection and rejects failed delivery',async()=>{
  const {sendEmail}=await import('../worker/mail.mjs');const originalFetch=globalThis.fetch;
  const env={APP_URL:origin,EMAIL_WEBHOOK_URL:'https://script.google.com/macros/s/test-deployment/exec',EMAIL_WEBHOOK_SECRET:'test-secret'};
- globalThis.fetch=async(url,options)=>{assert.equal(url,env.EMAIL_WEBHOOK_URL);const body=JSON.parse(options.body);assert.equal(body.secret,'test-secret');assert.equal(body.to,'mum@example.com');return Response.json({ok:true})};
+ globalThis.fetch=async(url,options)=>{assert.equal(url,env.EMAIL_WEBHOOK_URL);const body=JSON.parse(options.body);const verified=verificationFixture(body);if(verified)return verified;assert.equal(body.secret,'test-secret');assert.equal(body.to,'mum@example.com');return Response.json({ok:true})};
  try{await sendEmail(env,{to:'mum@example.com',subject:'Fancy Knowing · Reset',text:'Test email',idempotencyKey:'test-key'});globalThis.fetch=async()=>Response.json({ok:false});await assert.rejects(()=>sendEmail(env,{to:'mum@example.com',subject:'Test',text:'Test',idempotencyKey:'test-key'}));await assert.rejects(()=>sendEmail({...env,EMAIL_WEBHOOK_URL:'https://wrong.example/exec'},{to:'mum@example.com',subject:'Test',text:'Test',idempotencyKey:'key'}))}finally{globalThis.fetch=originalFetch}
 });
 
@@ -168,7 +169,7 @@ test('shared guest questions hide answers until a guess and never expose account
  const shared=await call('/questions/test-question/share',{method:'POST',cookie:owner.cookie,body:{}});assert.equal(shared.status,200);
  const url=new URL(shared.data.url);assert.equal(url.origin,origin);const token=url.searchParams.get('share');assert.match(token,/^[a-f0-9]{64}$/);
  assert.equal((await call('/questions/test-question/share',{method:'POST',cookie:owner.cookie,body:{}})).data.url,shared.data.url);
- const guest=await call('/shared/'+token);assert.equal(guest.status,200);assert.deepEqual(Object.keys(guest.data.question).sort(),['options','q','topic']);assert.equal(guest.cookie,undefined);
+ const guest=await call('/shared/'+token);assert.equal(guest.status,200);assert.deepEqual(Object.keys(guest.data.question).sort(),['format','options','q','topic']);assert.equal(guest.cookie,undefined);
  const before=(await db.prepare('SELECT COUNT(*) AS n FROM attempts').first()).n;
  const answer=await call(`/shared/${token}/answer`,{method:'POST',body:{choice:0}});assert.equal(answer.status,200);assert.equal(answer.data.question.correct,2);assert.equal(answer.data.question.attempt.correct,false);assert.ok(answer.data.question.explanation);assert.equal(answer.data.question.follow,undefined);assert.equal(answer.data.messages,undefined);assert.equal(answer.data.user,undefined);
  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM attempts').first()).n,before);
@@ -229,18 +230,18 @@ test('lifetime facts and semantic paraphrases are rejected before a fresh candid
  const memory=Array.from({length:151},(_,i)=>({q:'Previously learned fact '+i,options:['Old answer','No'],correct:0,concept:'prior-'+i,topic:'Nature',subtopic:'old-subject-'+i,vector:vector(0)}));
  const source='https://facts.example.test/memory';
  globalThis.fetch=async(url,options)=>{
-  const body=JSON.parse(options.body);if(url.endsWith('/embeddings'))return Response.json({data:[{index:0,embedding:vector(candidate===2?0:1)}]});
+  const body=JSON.parse(options.body);const verified=verificationFixture(body);if(verified)return verified;if(url.endsWith('/embeddings'))return Response.json({data:[{index:0,embedding:vector(candidate===2?0:1)}]});
   if(body.tools){candidate++;return aiText('A quiz question and its factual verification.',[triviaUrl,source])}
   if(body.text?.format?.name==='trivia_quality'){audits++;return aiText({accepted:true,correctAnswer:JSON.parse(body.input).candidate.correctAnswer,reason:'Fresh fact.'})}
   return aiText({topic:'Nature',q:'New wording '+candidate,options:['New answer '+candidate,'Wrong'],correct:0,explanation:'Fixture evidence.',concept:candidate===1?'prior-150':'fresh-'+candidate,subtopic:'candidate-subject-'+candidate,source,triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']});
  };
- try{const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test'},'2099-04-01',[],2,false,{userId:'semantic-test',slot:0,topic:'Nature',memory});assert.equal(JSON.parse(row.data).concept,'fresh-3');assert.equal(candidate,3);assert.equal(audits,1)}finally{globalThis.fetch=originalFetch}
+ try{const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test'},'2099-04-01',[],2,false,{userId:'semantic-test',slot:0,topic:'Nature',memory,format:'multiple_choice'});assert.equal(JSON.parse(row.data).concept,'fresh-3');assert.equal(candidate,3);assert.equal(audits,1)}finally{globalThis.fetch=originalFetch}
 });
 test('ambiguity review retries and never stores the rejected question',async()=>{
  const {dailyQuestion}=await import('../worker/ai.mjs');const originalFetch=globalThis.fetch;let candidate=0,audits=0;
  const source='https://facts.example.test/quality';
  globalThis.fetch=async(url,options)=>{
-  const body=JSON.parse(options.body);if(url.endsWith('/embeddings'))return embeddingResponse(body);
+  const body=JSON.parse(options.body);const verified=verificationFixture(body);if(verified)return verified;if(url.endsWith('/embeddings'))return embeddingResponse(body);
   if(body.tools){assert.match(body.instructions,/vowel LETTERS/);candidate++;return aiText('A quiz page and factual support for this fixture.',[triviaUrl,source])}
   if(body.text?.format?.name==='trivia_quality'){audits++;return aiText({accepted:candidate===2,correctAnswer:JSON.parse(body.input).candidate.correctAnswer,reason:'The first question has more than one plausible answer.'})}
   return aiText({topic:'Languages',q:'Quality candidate '+candidate,options:['Answer','Distractor'],correct:0,explanation:'A brief factual explanation.',concept:'quality-test-'+candidate,subtopic:'quality-subject-'+candidate,source,triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']});
@@ -260,7 +261,7 @@ test('the slots migration preserves existing daily assignments and prevents dupl
 });
 test('a failed memory check never serves an unchecked question or leaves its lock',async()=>{
  const {dailyQuestion}=await import('../worker/ai.mjs'),originalFetch=globalThis.fetch;const source='https://facts.example.test/failure';
- globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(url.endsWith('/embeddings'))return Response.json({error:'unavailable'},{status:503});if(body.tools)return aiText('Fixture quiz and evidence.',[triviaUrl,source]);return aiText({topic:'History',q:'Which fixture is it?',options:['One','Two'],correct:0,explanation:'Fixture.',concept:'unchecked-failure',subtopic:'failure-fixture',source,triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']})};
+ globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);const verified=verificationFixture(body);if(verified)return verified;if(url.endsWith('/embeddings'))return Response.json({error:'unavailable'},{status:503});if(body.tools)return aiText('Fixture quiz and evidence.',[triviaUrl,source]);return aiText({topic:'History',q:'Which fixture is it?',options:['One','Two'],correct:0,explanation:'Fixture.',concept:'unchecked-failure',subtopic:'failure-fixture',source,triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']})};
  try{await assert.rejects(()=>dailyQuestion({DB:db,OPENAI_API_KEY:'test'},'2099-04-03',[],2),/memory connection/);assert.equal(await db.prepare("SELECT id FROM questions WHERE concept='unchecked-failure'").first(),null);assert.equal(await db.prepare('SELECT key FROM locks WHERE key=?').bind('generate:2099-04-03:answers-2').first(),null)}finally{globalThis.fetch=originalFetch}
 });
 test('reminder periods persist per account and schedule each daily question inside that period',async()=>{
@@ -299,7 +300,7 @@ test('asynchronous challenge preserves answers, guest identity, privacy and pers
  assert.equal((await call('/games',{method:'POST',body:{}})).status,401);
  const body={kind:'challenge',topic:'History',difficulty:'easy',count:5,requestId:crypto.randomUUID()};
  const created=await call('/games',{cookie,method:'POST',body});assert.equal(created.status,200,JSON.stringify(created.data));const game=created.data.game,id=game.id;
- assert.equal(game.question.options.length,4);assert.equal(game.question.correct,undefined);assert.equal(game.review,undefined);
+ assert.equal(game.question.options.length,game.question.format==='multiple_choice'?4:2);assert.equal(game.question.correct,undefined);assert.equal(game.review,undefined);
  assert.equal((await call('/games',{cookie,method:'POST',body})).data.game.id,id);
  const token=new URL(game.inviteUrl).searchParams.get('challenge'),path='/challenges/'+token;
  const outsider=await call(path);assert.equal(outsider.data.game.question,undefined);assert.equal(outsider.data.game.canJoin,true);
@@ -309,12 +310,12 @@ test('asynchronous challenge preserves answers, guest identity, privacy and pers
  assert.equal((await call(path+'/join',{method:'POST',body:{name:'An intruder'}})).status,409);
  assert.equal((await call('/games/'+id,{cookie:(await call('/auth/login',{method:'POST',body:{email:'mum@example.com',password:'another-test-password'}})).cookie})).status,403);
  assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:2,choice:0}})).status,409);
- for(let position=0;position<5;position++){const r=await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position,choice:0}});assert.equal(r.status,200,JSON.stringify(r.data));assert.equal(r.data.game.review,undefined);assert.ok(r.data.game.players.every(p=>p.score===undefined))}
- assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:0,choice:1}})).status,409);
- assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:0,choice:0}})).status,200);
+ for(let position=0;position<5;position++){const correct=(await gameKey(id,position)).correct;const r=await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position,choice:correct}});assert.equal(r.status,200,JSON.stringify(r.data));assert.equal(r.data.game.review,undefined);assert.ok(r.data.game.players.every(p=>p.score===undefined))}
+ assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:0,choice:((await gameKey(id,0)).correct+1)%(await gameKey(id,0)).options.length}})).status,409);
+ assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position:0,choice:(await gameKey(id,0)).correct}})).status,200);
  assert.equal((await call('/notifications',{cookie})).data.unread,0);
  assert.equal((await db.prepare('SELECT COUNT(*) n FROM attempts WHERE user_id=?').bind(host.data.user.id).first()).n,0);
- let finished;for(let position=0;position<5;position++)finished=await call(path+'/answer',{cookie:guestCookie,method:'POST',body:{position,choice:1}});
+ let finished;for(let position=0;position<5;position++)finished=await call(path+'/answer',{cookie:guestCookie,method:'POST',body:{position,choice:((await gameKey(id,position)).correct+1)%(await gameKey(id,position)).options.length}});
  assert.equal(finished.status,200);assert.equal(finished.data.game.complete,true);assert.equal(finished.data.game.review.length,5);
  const result=await call('/games/'+id,{cookie});assert.equal(result.data.game.players.find(p=>p.self).score,5);assert.equal(result.data.game.draw,false);
  const anonymous=await call(path);assert.equal(anonymous.data.game.review,undefined);assert.ok(anonymous.data.game.players.every(p=>p.score===undefined));
@@ -327,8 +328,8 @@ test('asynchronous challenge preserves answers, guest identity, privacy and pers
 test('single extra question reveals a result and saves a normal discovery',async()=>{
  const cookie=challengeTestCookie;
  const response=await call('/games',{cookie,method:'POST',body:{kind:'solo',topic:'History',difficulty:'hard',count:1,requestId:crypto.randomUUID()}});assert.equal(response.status,200,JSON.stringify(response.data));
- const result=await call('/games/'+response.data.game.id+'/answer',{cookie,method:'POST',body:{position:0,choice:0}});assert.equal(result.data.game.complete,true);const id=result.data.game.review[0].id;
- assert.equal((await call('/questions/'+id,{cookie})).data.question.correct,0);
+ const result=await call('/games/'+response.data.game.id+'/answer',{cookie,method:'POST',body:{position:0,choice:(await gameKey(response.data.game.id,0)).correct}});assert.equal(result.data.game.complete,true);const id=result.data.game.review[0].id;
+ assert.equal((await call('/questions/'+id,{cookie})).data.question.attempt.correct,true);
  assert.equal((await call('/questions/'+id+'/save',{cookie,method:'POST',body:{saved:true}})).status,200);
 });
 
@@ -374,6 +375,38 @@ test('the reported Tungsten question and its historical grading are corrected to
 
 test('generation retries both a mismatched index and an editor answer disagreement',async()=>{
  const {dailyQuestion}=await import('../worker/ai.mjs'),previousFetch=globalThis.fetch;let candidate=0,audits=0;
- globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(url.endsWith('/embeddings'))return embeddingResponse(body);if(body.tools){candidate++;return aiText('A quiz page and verified evidence.',[triviaUrl,'https://facts.example.test/answer-check'])}if(body.text?.format?.name==='trivia_quality'){audits++;return aiText({accepted:true,reason:'Fixture',correctAnswer:candidate===2?'Gold':'Tungsten'})}return aiText({topic:'Chemistry',q:'Answer key candidate '+candidate,options:['Iron','Tungsten','Gold','Lead'],correct:candidate===1?2:1,correctAnswer:'Tungsten',explanation:'The answer is Tungsten.',concept:'key-check-'+candidate,subtopic:'key-subject-'+candidate,source:'https://facts.example.test/answer-check',triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']})};
- try{const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test'},'2099-05-01',[],4);assert.equal(candidate,3);assert.equal(audits,2);assert.equal(JSON.parse(row.data).correct,1);assert.equal(await db.prepare("SELECT id FROM questions WHERE concept='key-check-1' OR concept='key-check-2'").first(),null)}finally{globalThis.fetch=previousFetch}
+ globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);const verified=verificationFixture(body);if(verified)return verified;if(url.endsWith('/embeddings'))return embeddingResponse(body);if(body.tools){candidate++;return aiText('A quiz page and verified evidence.',[triviaUrl,'https://facts.example.test/answer-check'])}if(body.text?.format?.name==='trivia_quality'){audits++;return aiText({accepted:true,reason:'Fixture',correctAnswer:candidate===2?'Gold':'Tungsten'})}return aiText({topic:'Chemistry',q:'Answer key candidate '+candidate,options:['Iron','Tungsten','Gold','Lead'],correct:candidate===1?2:1,correctAnswer:'Tungsten',explanation:'The answer is Tungsten.',concept:'key-check-'+candidate,subtopic:'key-subject-'+candidate,source:'https://facts.example.test/answer-check',triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']})};
+ try{const row=await dailyQuestion({DB:db,OPENAI_API_KEY:'test'},'2099-05-01',[],4);assert.equal(candidate,3);assert.equal(audits,2);assert.equal(JSON.parse(row.data).options[JSON.parse(row.data).correct],'Tungsten');assert.equal(await db.prepare("SELECT id FROM questions WHERE concept='key-check-1' OR concept='key-check-2'").first(),null)}finally{globalThis.fetch=previousFetch}
+});
+
+async function gameKey(id,position){return JSON.parse((await db.prepare('SELECT q.data FROM trivia_game_questions g JOIN questions q ON q.id=g.question_id WHERE g.game_id=? AND g.position=?').bind(id,position).first()).data)}
+
+test('variable quiz lengths, mixed formats, metric defaults and cached AI verdicts',async()=>{
+ const cookie=challengeTestCookie;
+ const approved=await call('/topics',{cookie,method:'POST',body:{topic:'General knowledge'}});assert.equal(approved.data.topic,'General knowledge');
+ for(const count of [2,20]){
+  const created=await call('/games',{cookie,method:'POST',body:{kind:'solo',topic:'General knowledge',difficulty:'medium',count,requestId:crypto.randomUUID()}});assert.equal(created.status,200,JSON.stringify(created.data));const id=created.data.game.id;
+  const rows=(await db.prepare('SELECT q.data FROM trivia_game_questions g JOIN questions q ON q.id=g.question_id WHERE g.game_id=? ORDER BY g.position').bind(id).all()).results.map(r=>JSON.parse(r.data));assert.equal(rows.length,count);assert.ok(rows.some(q=>q.format==='true_false'));if(count===20)assert.ok(rows.some(q=>q.format==='this_or_that'));
+  for(const q of rows){assert.equal(q.options.length,q.format==='multiple_choice'?4:2);assert.equal(q.correctAnswer,q.options[q.correct])}
+  assert.equal((await call('/games/'+id+'/verdict',{cookie,method:'POST',body:{}})).status,403);
+  for(let position=0;position<count;position++)assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position,choice:rows[position].correct}})).status,200);
+  const result=(await call('/games/'+id,{cookie})).data.game;assert.equal(result.players.find(p=>p.self).score,count);assert.equal(result.review.length,count);assert.ok(result.fallbackVerdict);
+  const verdict=await call('/games/'+id+'/verdict',{cookie,method:'POST',body:{}});assert.equal(verdict.status,200);assert.equal(typeof verdict.data.verdict,'string');assert.equal((await call('/games/'+id+'/verdict',{cookie,method:'POST',body:{}})).data.verdict,verdict.data.verdict);
+ }
+ for(const count of [0,21,2.5])assert.equal((await call('/games',{cookie,method:'POST',body:{kind:'solo',topic:'History',difficulty:'easy',count,requestId:crypto.randomUUID()}})).status,400);
+ assert.equal((await call('/settings',{cookie,method:'PUT',body:{units:'imperial'}})).status,200);
+ const q={topic:'Chemistry',format:'multiple_choice',q:'What temperature is 100 °C in this fixture?',options:['100 °C','20 °C','50 °C','0 °C'],correct:0,explanation:'The fixture is 100 °C.',source:'https://example.test',aliases:[],follow:['Why?','How?','Where?']};await db.prepare('INSERT INTO questions(id,day,fingerprint,concept,data,created_at) VALUES (?,?,?,?,?,?)').bind('units-q','units-test','units-fp','units-test',JSON.stringify(q),Date.now()).run();
+ const imperial=await call('/questions/units-q',{cookie});assert.ok(imperial.data.question.q.includes('212 °F'));assert.equal(imperial.data.question.correct,undefined);
+ const answer=await call('/questions/units-q/answer',{cookie,method:'POST',body:{typed:'212 °F',attemptId:crypto.randomUUID()}});assert.equal(answer.data.question.attempt.correct,true);assert.ok(answer.data.question.explanation.includes('212 °F'));
+ const source=JSON.parse((await db.prepare("SELECT data FROM questions WHERE id='units-q'").first()).data);assert.equal(source.q,q.q);
+ const topics=await call('/quiz-topics',{cookie});assert.equal(topics.data.topics[0],'General knowledge');assert.ok(topics.data.topics.includes('History'));assert.ok(!topics.data.topics.includes('Mixed topics'));
+});
+
+test('quiz retries retain verified questions and replace only rejected formats',async()=>{
+ const {triviaPack}=await import('../worker/trivia.mjs'),previousFetch=globalThis.fetch;let round=0,factChecks=0,senseChecks=0;
+ globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);if(url.endsWith('/embeddings'))return embeddingResponse(body);if(body.tools){if(body.instructions.startsWith('Research'))round++;return aiText('Independently sourced facts.',[triviaUrl,'https://facts.example.test/partial'])}
+ if(body.text?.format?.name==='trivia_pack'){const input=JSON.parse(body.input);return aiText({questions:input.formats.map((format,i)=>({format,topic:'History',q:'Verified retry fixture '+round+'-'+i,options:format==='true_false'?['True','False']:Array.from({length:format==='multiple_choice'?4:2},(_,j)=>'Option '+j),correct:0,explanation:'A verified fixture.',concept:'partial-'+round+'-'+i,subtopic:'retry-subject-'+round+'-'+i,source:'https://facts.example.test/partial',triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']}))})}
+ const input=JSON.parse(body.input),fact=body.text?.format?.name==='trivia_pack_review';if(fact)factChecks++;else senseChecks++;return aiText({checks:input.questions.map(q=>({accepted:!(fact&&q.concept==='partial-1-1'),correctAnswer:q.correctAnswer,reason:'Only the first true/false item needs replacement.'}))});
+ };
+ try{const pack=await triviaPack({DB:db,OPENAI_API_KEY:'test'},{id:'partial-new-user'},'History','medium',3,4);assert.equal(round,2);assert.equal(factChecks,2);assert.equal(senseChecks,2);assert.equal(pack.questions.length,3);assert.ok(pack.questions.some(q=>q.concept==='partial-1-0'));assert.ok(pack.questions.some(q=>q.concept==='partial-1-2'));assert.ok(!pack.questions.some(q=>q.concept==='partial-1-1'));assert.deepEqual(new Set(pack.questions.map(q=>q.format)),new Set(['multiple_choice','true_false','this_or_that']))}finally{globalThis.fetch=previousFetch}
 });

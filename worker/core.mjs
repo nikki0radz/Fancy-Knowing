@@ -19,6 +19,7 @@ export function equal(a, b) { if (typeof a !== 'string' || typeof b !== 'string'
 export function validateSettings(value) {
  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Invalid settings.');
  const output = {};
+ if('units' in value){if(!['metric','imperial'].includes(value.units))fail('Choose metric or imperial units.');output.units=value.units}
  if ('theme' in value) { if (!['light','dark'].includes(value.theme)) fail('Invalid theme.'); output.theme = value.theme; }
  if ('time' in value) { if (typeof value.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) fail('Invalid reminder time.'); output.time = value.time; }
  if('notificationMode' in value){if(!['fixed','random','period'].includes(value.notificationMode))fail('Choose whenever, a set time or part of the day.');output.notificationMode=value.notificationMode}
@@ -91,7 +92,7 @@ export async function notificationTimes(settings,day,seed){
 export function localDay(timezone = 'Europe/London', date = new Date()) { return new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date); }
 export function validateQuestion(q, citedUrls, expectedCount) {
  if (!q || typeof q !== 'object') fail('The question could not be checked. Try again.', 502);
- for(const k of ['topic','q','explanation','concept','source']) if(typeof q[k] !== 'string' || !q[k].trim() || q[k].length > (k==='explanation'?600:300)) fail('The question could not be checked. Try again.',502);
+ for(const k of ['topic','q','explanation','concept','source']) if(typeof q[k] !== 'string' || !q[k].trim() || q[k].length > (k==='source'?1500:k==='explanation'?600:300)) fail('The question could not be checked. Try again.',502);
  if (!Array.isArray(q.options) || q.options.length<2 || q.options.length>10 || (expectedCount!==undefined&&q.options.length!==expectedCount) || q.options.some(o=>typeof o!=='string'||!o.trim()||o.length>100) || new Set(q.options.map(normalize)).size!==q.options.length || !Number.isInteger(q.correct)||q.correct<0||q.correct>=q.options.length) fail('The question could not be checked. Try again.',502);
  if(!Array.isArray(q.aliases)||q.aliases.some(a=>typeof a!=='string'||a.length>100)||q.aliases.length>10)fail('Invalid answer aliases.',502);
  if(!Array.isArray(q.follow)||q.follow.length!==3||q.follow.some(f=>typeof f!=='string'||!f.trim()||f.length>120)||new Set(q.follow.map(normalize)).size!==3)fail('Invalid follow-up questions.',502);

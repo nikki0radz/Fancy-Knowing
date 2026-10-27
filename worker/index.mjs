@@ -2,6 +2,7 @@ import { fail, hash, DAY, randomToken, validateSettings, validateNotificationWin
 import { budget, chatReply } from './ai.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
 import {assignDiscovery,assignedQuestion,daySlots} from './discoveries.mjs';
+import {displayQuestion,formatUnits} from './quiz.mjs';
 import {friendsApi} from './friends.mjs';
 import {gamesApi} from './games.mjs';
 import { deliverPendingWelcomes } from './mail.mjs';
@@ -14,7 +15,7 @@ async function body(request,limit=16000) {
 }
 async function questionFor(env,id){if(typeof id!=='string'||id.length>80)fail('Invalid question.');const row=await env.DB.prepare('SELECT * FROM questions WHERE id=?').bind(id).first();if(!row)fail('Question not found.',404);return row}
 async function latest(env,userId,questionId){return env.DB.prepare('SELECT * FROM attempts WHERE user_id=? AND question_id=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(userId,questionId).first()}
-function reveal(row,attempt=null,blind=false){const q=JSON.parse(row.data);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
+function reveal(row,attempt=null,blind=false,units='metric'){const q=displayQuestion(JSON.parse(row.data),units);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,format:q.format||'multiple_choice',q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
 async function databaseStatus(env){
  if(!env.DB)return {databaseReady:false,databaseIssue:'binding_missing'};
  try{
@@ -28,6 +29,7 @@ async function databaseStatus(env){
   const missingColumns=['email','email_verified_at','profile','avatar','friend_username'].filter(name=>!fields.has(name));
   if(missingColumns.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingColumns};
   const assignments=await env.DB.prepare('PRAGMA table_info(daily_assignments)').all();if(!assignments.results.some(c=>c.name==='slot'))return {databaseReady:false,databaseIssue:'migrations_missing',missingColumns:['daily_assignments.slot']};
+  const players=await env.DB.prepare('PRAGMA table_info(trivia_players)').all();if(!players.results.some(c=>c.name==='verdict'))return {databaseReady:false,databaseIssue:'migrations_missing',missingColumns:['trivia_players.verdict']};
   return {databaseReady:true};
  }catch{return {databaseReady:false,databaseIssue:'database_unavailable'}}
 }
@@ -48,7 +50,7 @@ async function api(request,env,ctx){
  if(guest){
   const row=await env.DB.prepare('SELECT q.* FROM shared_questions s JOIN questions q ON q.id=s.question_id WHERE s.token=?').bind(guest[1]).first();
   if(!row)fail('This shared question could not be found.',404);
-  const q=JSON.parse(row.data),question={topic:q.topic,q:q.q,options:q.options};
+  const q=JSON.parse(row.data),question={topic:q.topic,format:q.format||'multiple_choice',q:q.q,options:q.options};
   if(method==='GET'&&!guest[2])return json({question},200,{'Cache-Control':'no-store'});
   if(method==='POST'&&guest[2]==='answer'){
    const result=grade(q,await body(request));
@@ -67,6 +69,10 @@ async function api(request,env,ctx){
  }
  if(method==='GET'&&path==='/api/me')return json({user:publicUser(user)});
  if(method==='POST'&&path==='/api/account/email')return requestEmailChange(request,env,user,await body(request));
+ if(method==='GET'&&path==='/api/quiz-topics'){
+  const uses=await env.DB.prepare('SELECT topic,COUNT(*) AS uses FROM trivia_games WHERE creator_id=? GROUP BY topic ORDER BY uses DESC').bind(user.id).all();const profile=JSON.parse(user.profile||'{}');const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=?').bind(user.id).all();
+  const scores=new Map(uses.results.map(r=>[r.topic,r.uses]));const all=[...new Set(['General knowledge',...uses.results.map(r=>r.topic==='Mixed topics'?'General knowledge':r.topic),...(profile.interests||[]),...SUBJECTS,...custom.results.map(r=>r.topic)])];const rest=all.filter(t=>t!=='General knowledge').sort((a,b)=>(scores.get(b)||0)-(scores.get(a)||0));return json({topics:['General knowledge',...rest]});
+ }
  if(method==='GET'&&path==='/api/topics'){const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? ORDER BY created_at').bind(user.id).all();return json({subjects:SUBJECTS,custom:custom.results.map(r=>r.topic)})}
  if(method==='POST'&&path==='/api/topics')return json(await approveTopic(env,user,(await body(request)).topic));
  if(method==='PUT'&&path==='/api/profile')return json(await updateProfile(env,user,await body(request)));
@@ -98,17 +104,17 @@ async function api(request,env,ctx){
   if(day===today){if(slot>=count)fail('This question is outside your daily amount.',404);row=await assignDiscovery(env,user,day,slot)}
   else{row=await assignedQuestion(env,user.id,day,slot);if(!row)fail('That discovery is not available.',404);const max=await env.DB.prepare('SELECT MAX(slot) AS slot FROM daily_assignments WHERE user_id=? AND day=?').bind(user.id,day).first();count=max.slot+1}
   const attempt=await latest(env,user.id,row.id),saved=await env.DB.prepare('SELECT due_at FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();
-  return json({question:reveal(row,attempt),saved:saved?{due:saved.due_at}:null,day,slot,count,slots:await daySlots(env,user.id,day,count)});
+  return json({question:reveal(row,attempt,false,settings.units),saved:saved?{due:saved.due_at}:null,day,slot,count,slots:await daySlots(env,user.id,day,count)});
  }
  if(method==='GET'&&path==='/api/library'){
   const rows=await env.DB.prepare('SELECT q.*,s.due_at,s.saved_at,(SELECT COUNT(*) FROM chats c WHERE c.user_id=? AND c.question_id=q.id) AS chat_count FROM questions q LEFT JOIN saved s ON s.question_id=q.id AND s.user_id=? WHERE s.user_id=? OR EXISTS(SELECT 1 FROM attempts a WHERE a.question_id=q.id AND a.user_id=?) ORDER BY q.created_at DESC LIMIT 300').bind(user.id,user.id,user.id,user.id).all();
-  const questions=[];for(const row of rows.results)questions.push({...reveal(row,await latest(env,user.id,row.id)),chatCount:row.chat_count,saved:row.due_at?{due:row.due_at}:null});
+  const questions=[];for(const row of rows.results)questions.push({...reveal(row,await latest(env,user.id,row.id),false,JSON.parse(user.settings).units),chatCount:row.chat_count,saved:row.due_at?{due:row.due_at}:null});
   return json({questions});
  }
  const match=path.match(/^\/api\/questions\/([^/]+)(?:\/(answer|save|chat|share))?$/);
  if(match){
   const row=await questionFor(env,match[1]),q=JSON.parse(row.data),action=match[2];
-  if(method==='GET'&&!action)return json({question:reveal(row,await latest(env,user.id,row.id),url.searchParams.get('blind')==='1')});
+  if(method==='GET'&&!action)return json({question:reveal(row,await latest(env,user.id,row.id),url.searchParams.get('blind')==='1',JSON.parse(user.settings).units)});
   if(method==='POST'&&action==='share'){
    if(!await latest(env,user.id,row.id))fail('Take a guess before sharing this question.',403);
    await env.DB.prepare('INSERT INTO shared_questions(token,question_id,created_at) VALUES (?,?,?) ON CONFLICT(question_id) DO NOTHING').bind(randomToken(),row.id,Date.now()).run();
@@ -116,16 +122,16 @@ async function api(request,env,ctx){
    return json({url:url.origin+'/?share='+shared.token});
   }
   if(method==='POST'&&action==='answer'){
-   const input=await body(request),result=grade(q,input),now=Date.now();
+   const input=await body(request),result=grade(q,input),now=Date.now();if(result.typed&&JSON.parse(user.settings).units==='imperial'){const shown=formatUnits(q.options[q.correct],'imperial');if([shown,shown.replace(/\s*\([^)]*\)/g,'')].some(s=>s.trim().toLowerCase()===result.typed.toLowerCase()))result.correct=true}
    if(typeof input.attemptId!=='string'||! /^[a-f0-9-]{36}$/.test(input.attemptId))fail('Missing answer identifier.');
    const previous=await env.DB.prepare('SELECT * FROM attempts WHERE id=?').bind(input.attemptId).first();
-   if(previous){if(previous.user_id!==user.id||previous.question_id!==row.id)fail('Invalid answer identifier.',409);return json({question:reveal(row,previous)})}
+   if(previous){if(previous.user_id!==user.id||previous.question_id!==row.id)fail('Invalid answer identifier.',409);return json({question:reveal(row,previous,false,JSON.parse(user.settings).units)})}
    await budget(env,`attempts:${user.id}:${localDay()}`,150,now+2*DAY);
    await env.DB.batch([
     env.DB.prepare('INSERT INTO attempts(id,user_id,question_id,choice,typed,correct,created_at) VALUES (?,?,?,?,?,?,?)').bind(input.attemptId,user.id,row.id,result.choice,result.typed,result.correct?1:0,now),
     env.DB.prepare('UPDATE saved SET due_at=? WHERE user_id=? AND question_id=?').bind(now+(result.correct?14:7)*DAY,user.id,row.id)
    ]);
-   return json({question:reveal(row,{id:input.attemptId,choice:result.choice,typed:result.typed,correct:result.correct?1:0,created_at:now})});
+   return json({question:reveal(row,{id:input.attemptId,choice:result.choice,typed:result.typed,correct:result.correct?1:0,created_at:now},false,JSON.parse(user.settings).units)});
   }
   if(method==='POST'&&action==='save'){
    const input=await body(request);if(typeof input.saved!=='boolean')fail('Invalid save request.');
@@ -141,7 +147,7 @@ async function api(request,env,ctx){
     const key=`chat:${user.id}:${row.id}`,lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(key,Date.now()+65000,Date.now()).first();if(!lock)fail('Your previous reply is still being prepared.',409);
     try{
      const history=await env.DB.prepare('SELECT role,content FROM (SELECT id,role,content FROM chats WHERE user_id=? AND question_id=? ORDER BY id DESC LIMIT 16) ORDER BY id').bind(user.id,row.id).all();
-     const reply=await chatReply(env,q,history.results,message.trim());
+     const reply=await chatReply(env,q,history.results,message.trim(),JSON.parse(user.settings).units);
      await env.DB.batch([env.DB.prepare('INSERT INTO chats(user_id,question_id,role,content,created_at) VALUES (?,?,?,?,?)').bind(user.id,row.id,'user',message.trim(),Date.now()),env.DB.prepare('INSERT INTO chats(user_id,question_id,role,content,created_at) VALUES (?,?,?,?,?)').bind(user.id,row.id,'assistant',reply,Date.now())]);
      return json({reply});
     }finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(key).run()}
