@@ -12,9 +12,22 @@ async function body(request,limit=16000) {
 async function questionFor(env,id){if(typeof id!=='string'||id.length>80)fail('Invalid question.');const row=await env.DB.prepare('SELECT * FROM questions WHERE id=?').bind(id).first();if(!row)fail('Question not found.',404);return row}
 async function latest(env,userId,questionId){return env.DB.prepare('SELECT * FROM attempts WHERE user_id=? AND question_id=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(userId,questionId).first()}
 function reveal(row,attempt=null,blind=false){const q=JSON.parse(row.data);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
+async function databaseStatus(env){
+ if(!env.DB)return {databaseReady:false,databaseIssue:'binding_missing'};
+ try{
+  const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+  const names=new Set(tables.results.map(r=>r.name));
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox'];
+  if(required.some(name=>!names.has(name)))return {databaseReady:false,databaseIssue:'migrations_missing'};
+  const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
+  const fields=new Set(columns.results.map(r=>r.name));
+  if(['email','email_verified_at','profile','avatar'].some(name=>!fields.has(name)))return {databaseReady:false,databaseIssue:'migrations_missing'};
+  return {databaseReady:true};
+ }catch{return {databaseReady:false,databaseIssue:'database_unavailable'}}
+}
 async function api(request,env,ctx){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env)});
+ if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env),...await databaseStatus(env)});
  if(!env.DB)fail('The DB database binding is missing in Cloudflare.',503);
  if(!['GET','POST','PUT','DELETE'].includes(method))fail('Method not allowed.',405);
  if(method!=='GET'){
