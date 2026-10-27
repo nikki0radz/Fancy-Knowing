@@ -23,3 +23,17 @@
 .reminder-type>span{display:grid;place-items:center;line-height:1;flex-shrink:0;width:20px;height:20px}.reminder-type>span svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
 .game-topic-pills .more-topics{padding:8px 12px;margin:0;line-height:normal;border:1px dashed var(--line);background:transparent!important;color:var(--pink);font-size:12px;white-space:nowrap}.quiz-allowance{margin:18px 0 10px}#quizLimitDialog{text-align:center;max-width:390px;width:calc(100% - 32px);border-radius:24px}#quizLimitDialog h2{font-size:26px;line-height:1.2}#quizLimitDialog p{font-size:14px;line-height:1.6;color:var(--muted)}.quiz-limit-icon{font-size:40px;margin:8px 0 18px}
+
+/* Shared binary settings switch; theme retains its sun/moon control. */
+.setting-switch{position:relative;display:inline-block;width:66px;height:36px;flex-shrink:0;margin-left:12px;vertical-align:middle}
+.setting .setting-switch input[type=checkbox]{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;z-index:1;cursor:pointer}
+.switch-track{display:block;position:absolute;inset:0;background:var(--input);border:1px solid var(--line);border-radius:99px;pointer-events:none;transition:background .18s ease,border-color .18s ease}
+.switch-track:before{content:'';position:absolute;top:4px;left:4px;width:26px;height:26px;border-radius:50%;background:var(--muted);box-shadow:0 2px 5px #0002;transition:transform .18s ease,background .18s ease}
+.switch-track:after{content:'Off';position:absolute;right:7px;top:0;height:34px;display:flex;align-items:center;font-size:10px;font-weight:700;color:var(--muted)}
+.setting-switch input:checked+.switch-track{background:var(--accent);border-color:var(--accent)}
+.setting-switch input:checked+.switch-track:before{transform:translateX(30px);background:var(--accent-ink)}
+.setting-switch input:checked+.switch-track:after{content:'On';right:auto;left:9px;color:var(--accent-ink)}
+.setting-switch input:focus-visible+.switch-track{outline:2px solid var(--pink);outline-offset:4px}.setting-switch input:disabled+.switch-track{opacity:.5}
+#headerprofile.header-profile{width:52px!important;height:52px!important;min-width:52px;font-size:21px}#headerprofile img{width:100%;height:100%;object-fit:cover}.header-actions{gap:12px!important}
+#editprofile{justify-content:center;position:relative;padding-left:44px;padding-right:44px;text-align:center}#editprofile>span{position:absolute;right:16px;top:50%;transform:translateY(-50%)}
+@media(prefers-reduced-motion:reduce){.switch-track,.switch-track:before{transition:none}}

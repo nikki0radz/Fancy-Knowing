@@ -480,3 +480,16 @@ test('quiz limits count successful creations, refund failures, and preserve repl
  assert.equal((await call('/games',{cookie,method:'POST',body:{...input,requestId:crypto.randomUUID()}})).status,200);
  assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,1);assert.equal((await call('/games/quota',{cookie})).data.remaining,29);
 });
+
+test('testing mode bypasses quiz quotas while preserving private access and preparation locks',async()=>{
+ const {gamesApi}=await import('../worker/games.mjs');
+ const account=await call('/auth/signup',{method:'POST',ip:'192.0.2.78',body:{email:'unlimited@example.test',password:'x',code:'private-test-code'}}),id=account.data.user.id,user=await db.prepare('SELECT * FROM users WHERE id=?').bind(id).first(),env={DB:db,QUIZ_LIMITS_ENABLED:'false'},input={kind:'solo',topic:'History',difficulty:'easy',count:2,requestId:crypto.randomUUID()};
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),keys=[`completed-games:${id}:${day}`,`quiz-preparation:${id}:${Math.floor(Date.now()/3600000)}`];
+ for(const key of keys)await db.prepare('INSERT INTO budgets(key,count,expires_at) VALUES (?,30,?)').bind(key,Date.now()+86400000).run();
+ const status=await gamesApi(new Request(origin+'/api/games/quota'),env,user,async()=>({}));assert.deepEqual((await status.json()).remaining,null);
+ await assert.rejects(()=>gamesApi(new Request(origin+'/api/games',{method:'POST'}),env,user,async()=>input),/AI key/);
+ for(const key of keys)assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,30);
+ assert.equal(await db.prepare('SELECT key FROM locks WHERE key=?').bind('create-game:'+id).first(),null);
+ await assert.rejects(()=>gamesApi(new Request(origin+'/api/games/quota'),env,null,async()=>({})),/Sign in first/);
+ const deploy=JSON.parse(await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8'));assert.equal(deploy.vars.QUIZ_LIMITS_ENABLED,'false');
+});
