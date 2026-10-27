@@ -1,6 +1,7 @@
 import { fail, hash, DAY, randomToken, validateSettings, validateNotificationWindow, notificationTimes, localDay, grade } from './core.mjs';
-import { budget, dailyQuestion, chatReply } from './ai.mjs';
+import { budget, chatReply } from './ai.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
+import {assignDiscovery,assignedQuestion,daySlots} from './discoveries.mjs';
 import { deliverPendingWelcomes } from './mail.mjs';
 import { SUBJECTS, approveTopic, updateProfile } from './profiles.mjs';
 async function body(request,limit=16000) {
@@ -17,13 +18,14 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
   const fields=new Set(columns.results.map(r=>r.name));
   const missingColumns=['email','email_verified_at','profile','avatar'].filter(name=>!fields.has(name));
   if(missingColumns.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingColumns};
+  const assignments=await env.DB.prepare('PRAGMA table_info(daily_assignments)').all();if(!assignments.results.some(c=>c.name==='slot'))return {databaseReady:false,databaseIssue:'migrations_missing',missingColumns:['daily_assignments.slot']};
   return {databaseReady:true};
  }catch{return {databaseReady:false,databaseIssue:'database_unavailable'}}
 }
@@ -79,20 +81,18 @@ async function api(request,env,ctx){
  }
  if(method==='GET'&&path==='/api/notification-schedule'){
   const settings=JSON.parse(user.settings),timezone=settings.timezone||'Europe/London',day=localDay(timezone);
-  return json({day,timezone,times:await notificationTimes(settings,day,user.id),deliveryAvailable:false});
+  const times=await notificationTimes(settings,day,user.id),slots=await daySlots(env,user.id,day,settings.dailyAmount||1);
+  return json({day,timezone,times,items:times.map((time,slot)=>({time,slot,questionId:slots[slot]?.id||null,url:url.origin+'/?day='+day+'&slot='+slot})),deliveryAvailable:false});
  }
  if(method==='GET'&&path==='/api/today'){
-  const timezone=JSON.parse(user.settings).timezone||'Europe/London',day=localDay(timezone);
-  const assignment=await env.DB.prepare('SELECT q.* FROM daily_assignments a JOIN questions q ON q.id=a.question_id WHERE a.user_id=? AND a.day=?').bind(user.id,day).first();
-  let row=assignment;
-  if(!row){
-   const profile=JSON.parse(user.profile||'{}');
-   row=await dailyQuestion(env,day,profile.interests||[],JSON.parse(user.settings).answerCount||4,profile.includeEverything===true);
-   await env.DB.prepare('INSERT INTO daily_assignments(user_id,day,question_id) VALUES (?,?,?) ON CONFLICT(user_id,day) DO NOTHING').bind(user.id,day,row.id).run();
-   row=await env.DB.prepare('SELECT q.* FROM daily_assignments a JOIN questions q ON q.id=a.question_id WHERE a.user_id=? AND a.day=?').bind(user.id,day).first();
-  }
-  const attempt=await latest(env,user.id,row.id);const saved=await env.DB.prepare('SELECT due_at FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();
-  return json({question:reveal(row,attempt),saved:saved?{due:saved.due_at}:null});
+  const settings=JSON.parse(user.settings),today=localDay(settings.timezone||'Europe/London'),day=url.searchParams.get('day')||today;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(day))fail('Choose a valid discovery day.');
+  const value=url.searchParams.get('slot')||'0';if(!/^[0-9]$/.test(value))fail('Choose an available question.');const slot=Number(value);
+  let count=settings.dailyAmount||1,row;
+  if(day===today){if(slot>=count)fail('This question is outside your daily amount.',404);row=await assignDiscovery(env,user,day,slot)}
+  else{row=await assignedQuestion(env,user.id,day,slot);if(!row)fail('That discovery is not available.',404);const max=await env.DB.prepare('SELECT MAX(slot) AS slot FROM daily_assignments WHERE user_id=? AND day=?').bind(user.id,day).first();count=max.slot+1}
+  const attempt=await latest(env,user.id,row.id),saved=await env.DB.prepare('SELECT due_at FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();
+  return json({question:reveal(row,attempt),saved:saved?{due:saved.due_at}:null,day,slot,count,slots:await daySlots(env,user.id,day,count)});
  }
  if(method==='GET'&&path==='/api/library'){
   const rows=await env.DB.prepare('SELECT q.*,s.due_at,s.saved_at,(SELECT COUNT(*) FROM chats c WHERE c.user_id=? AND c.question_id=q.id) AS chat_count FROM questions q LEFT JOIN saved s ON s.question_id=q.id AND s.user_id=? WHERE s.user_id=? OR EXISTS(SELECT 1 FROM attempts a WHERE a.question_id=q.id AND a.user_id=?) ORDER BY q.created_at DESC LIMIT 300').bind(user.id,user.id,user.id,user.id).all();
@@ -159,11 +159,14 @@ export default {
   ctx.waitUntil((async()=>{
    if(!env.DB)return;
    await deliverPendingWelcomes(env);
-   if(!env.OPENAI_API_KEY||new Date(event.scheduledTime).getUTCHours()!==3)return;
+   if(!env.OPENAI_API_KEY)return;
    await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM email_tokens WHERE expires_at<? OR used_at IS NOT NULL').bind(Date.now())]);
-   const users=await env.DB.prepare('SELECT profile,settings FROM users ORDER BY created_at LIMIT 20').all();
-   const profiles=users.results.length?users.results:[{profile:'{}',settings:'{}'}];
-   for(const u of profiles)for(const offset of [0,1])try{await dailyQuestion(env,localDay(JSON.parse(u.settings).timezone||'Europe/London',new Date(Date.now()+offset*DAY)),JSON.parse(u.profile||'{}').interests||[],JSON.parse(u.settings).answerCount||4,JSON.parse(u.profile||'{}').includeEverything===true)}catch(e){console.error('Scheduled question failed',e.status||500)}
+   const users=await env.DB.prepare('SELECT * FROM users ORDER BY created_at LIMIT 20').all();let prepared=0;
+   for(const user of users.results){
+    const settings=JSON.parse(user.settings),day=localDay(settings.timezone||'Europe/London'),slots=await daySlots(env,user.id,day,settings.dailyAmount||1),pending=slots.find(item=>!item.id);if(!pending)continue;
+    try{await assignDiscovery(env,user,day,pending.slot)}catch(e){console.error('Scheduled question failed',e.status||500)}
+    if(++prepared>=5)break;
+   }
   })());
  }
 };

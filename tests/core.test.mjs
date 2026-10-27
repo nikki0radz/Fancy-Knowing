@@ -55,3 +55,16 @@ test('everything mixed with selected topics favours them two days in three witho
  }
  assert.equal(selected.length,20);assert.equal(explored.length,10);assert.deepEqual(new Set(selected),new Set(interests));assert.ok(explored.every(t=>!interests.some(i=>i.toLowerCase().includes(t.toLowerCase()))));assert.ok(new Set(explored).size>3);
 });
+test('subject selection balances a long history and keeps the two-to-one mixed preference',async()=>{
+ const {chooseSubject}=await import('../worker/discoveries.mjs');
+ const interests=['Chemistry','Art','History'],history=[];
+ for(let i=0;i<90;i++){const selected=chooseSubject(interests,false,history);history.push({subject:selected.topic})}
+ for(const topic of interests)assert.equal(history.filter(q=>q.subject===topic).length,30);
+ const mixed=[];for(let i=0;i<90;i++){const selected=chooseSubject(interests,true,mixed);mixed.push({subject:selected.topic})}
+ assert.equal(mixed.filter(q=>interests.includes(q.subject)).length,60);
+ for(const topic of interests)assert.equal(mixed.filter(q=>q.subject===topic).length,20);
+ const generic=[];for(let i=0;i<48;i++)generic.push({subject:chooseSubject([],true,generic).topic});assert.equal(new Set(generic.map(q=>q.subject)).size,24);assert.ok([...new Set(generic.map(q=>q.subject))].every(topic=>generic.filter(q=>q.subject===topic).length===2));
+});
+test('answer aliases cannot make a second option correct',()=>{
+ const q={topic:'Science',q:'Which element?',options:['Oxygen','Gold','Iron','Helium'],correct:0,explanation:'Oxygen.',concept:'oxygen-fact',aliases:['Gold'],follow:['Why?','Where?','How?'],source:'https://example.org'};assert.throws(()=>validateQuestion(q,[q.source]),/overlap/);
+});

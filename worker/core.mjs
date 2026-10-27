@@ -51,6 +51,7 @@ export function validateQuestion(q, citedUrls, expectedCount) {
  if (!Array.isArray(q.options) || q.options.length<2 || q.options.length>10 || (expectedCount!==undefined&&q.options.length!==expectedCount) || q.options.some(o=>typeof o!=='string'||!o.trim()||o.length>100) || new Set(q.options.map(normalize)).size!==q.options.length || !Number.isInteger(q.correct)||q.correct<0||q.correct>=q.options.length) fail('The question could not be checked. Try again.',502);
  if(!Array.isArray(q.aliases)||q.aliases.some(a=>typeof a!=='string'||a.length>100)||q.aliases.length>10)fail('Invalid answer aliases.',502);
  if(!Array.isArray(q.follow)||q.follow.length!==3||q.follow.some(f=>typeof f!=='string'||!f.trim()||f.length>120)||new Set(q.follow.map(normalize)).size!==3)fail('Invalid follow-up questions.',502);
+ if(q.aliases.some(alias=>q.options.some((option,index)=>index!==q.correct&&normalize(option)===normalize(alias))))fail('The answer options overlap.',502);
  if (!citedUrls.includes(q.source) || !q.source.startsWith('https://')) fail('The source could not be checked. Try again.',502);
  return q;
 }

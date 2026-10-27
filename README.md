@@ -15,14 +15,19 @@ First create the D1 database, then insert its Database ID into `wrangler.jsonc`.
 ## Implemented
 
 - Separate invitation-only email/password accounts with secure persistent sessions and logout.
-- An interest-based daily AI question researched with web search and a cited source, validated choices, short explanation and three follow-up prompts.
+- Daily questions begin with online trivia/quiz collections, use fresh wording, and require a cited factual verification source as well as a cited quiz page. A separate editor check rejects ambiguous options, trick wording and near repeats.
+- One different question per daily notification slot (1–10), stable per account/day/slot. Today shows a numbered question picker, and notification links identify both day and slot. Existing assignments survive the migration.
+- Persistent per-account memory covers assigned, attempted and saved questions without a 120-question cutoff. Exact facts are rejected, stored 256-dimensional `text-embedding-3-small` vectors retrieve related lifetime questions, and the editor compares those alongside recent subtopics. Older question vectors are backfilled when needed. The existing OpenAI key is used; no new service or secret is required.
+- Subjects are chosen from the least-served interests, with oldest-served subjects breaking ties. Mixed interests retain two focused questions per exploration question. The same broad chosen category can recur while narrow facts and subjects are screened for repetition.
+- Validated multiple-choice answers, short explanations and three follow-up prompts.
 - Multiple choice and typed answers with answer aliases, marked on the server.
 - Concise live follow-up chat, saved per account and question.
 - Persistent answer attempts, saved discoveries, history, blind review and review due dates.
-- Two-step name and interest setup, pill-grid subjects and AI-validated custom topics. “Tell me a bit about everything” can stand alone or mix with selected interests (two focused days for each exploration day).
+- Two-step name and interest setup, pill-grid subjects and AI-validated custom topics. “Tell me a bit about everything” can stand alone or mix with selected interests (two focused questions for each exploration question).
 - Automatic welcome emails, email reset links and confirmed email migration for existing username accounts.
 - Separate Design, Notifications, Question preferences and My account settings.
 - Solid mustard accent, light/dark slider, hue-wheel palettes, six bundled font previews and text-size controls.
+- Header profile shortcut beside the theme switch, custom accent-coloured hour/minute picker, direct topic editor, and an explicit Save settings action alongside autosave.
 - Account profile pictures and persistent notification time/frequency preferences, including stable daily random times within a chosen daytime window.
 - Saved discoveries reopen their answer and private follow-up conversation; “Try remembering” remains a separate blind refresher.
 - Share an answered question using a guest link. Guests need no account, see the answer only after a guess, and have no access to chats or other account features.
@@ -34,10 +39,12 @@ First create the D1 database, then insert its Database ID into `wrangler.jsonc`.
 
 The connected app runs at https://fancy-knowing.nikki0radz.workers.dev. The older ChatGPT-hosted URL remains the static prototype. Email delivery can use your Gmail via Google Apps Script ([GMAIL-SETUP.md](GMAIL-SETUP.md)) or Resend; see [EMAIL-SETUP.md](EMAIL-SETUP.md).
 
-Android APK and notification delivery are not implemented in this commit. The app stores timing preferences and exposes a per-account local-time schedule at `/api/notification-schedule`; it does not deliver notifications yet. Fixed mode spaces additional reminders through the remaining day. Random mode spreads the chosen amount through the selected window, changes each day, and stays stable when fetched again on the same day. Welcome emails, recovery and email changes need a configured sender; see EMAIL-SETUP.md. AI citations and checks reduce factual errors but do not make the content infallible.
+Android APK and notification delivery are not implemented in this commit. The app stores timing preferences and exposes a per-account local-time schedule at `/api/notification-schedule`, including unique per-slot question links; it does not deliver notifications yet. The hourly worker prepares up to five pending slots per run across the first 20 accounts; a slot not yet prepared is generated on demand. Question count is independent of whether notifications are enabled. Reducing the daily count hides extra slots but keeps their history; already assigned questions retain their original options. Fixed mode spaces additional reminders through the remaining day. Random mode spreads the chosen amount through the selected window, changes each day, and stays stable when fetched again on the same day. Welcome emails, recovery and email changes need a configured sender; see EMAIL-SETUP.md. AI citations and checks reduce factual errors but do not make the content infallible.
 
 ## Development
 
 Node 22+. `npm install`, `npm run build`, `npm test`. See setup instructions for local secrets, D1 migrations and deployment.
 
-`index.html` and `app.js` are the source; `scripts/build.mjs` copies them into ignored `public/`. Backend modules live in `worker/`. Database changes live in versioned `migrations/`. Guest sharing needs migration `0005_shared_questions.sql`, applied automatically by `npm run deploy`. Shared links contain only a random token pointing to a question; personal messages and attempts are never included.
+`index.html` and `app.js` are the source; `scripts/build.mjs` copies them into ignored `public/`. Backend modules live in `worker/`. Database changes live in versioned `migrations/`. Guest sharing needs migration `0005_shared_questions.sql`; per-day question slots and semantic memory need `0006_question_slots_memory.sql`. Both are applied automatically by `npm run deploy`. Shared links contain only a random token pointing to a question; personal messages and attempts are never included.
+
+Quality controls reduce ambiguity and repetition but cannot guarantee that an AI-generated fact or similarity decision is perfect. Rejected candidates are retried up to three times; if all fail, no unchecked question is served. New questions may take longer because research, memory comparison and editor review happen before assignment. Existing saved questions are kept intact, and explicitly choosing “Try remembering” revisits a question.
