@@ -19,5 +19,6 @@ export async function approveTopic(env,user,value){
 export async function updateProfile(env,user,input){
  const name=displayName(input.name);if(!Array.isArray(input.interests)||input.interests.length>20||input.interests.some(s=>typeof s!=='string'))fail('Choose up to 20 subjects.');
  const interests=[...new Set(input.interests)];for(const topic of interests){if(SUBJECTS.includes(topic))continue;const approved=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? AND topic=?').bind(user.id,topic).first();if(!approved)fail('Please check your custom topic with the Add button first.')}
- const profile={name,interests,onboardingComplete:true};await env.DB.prepare('UPDATE users SET profile=? WHERE id=?').bind(JSON.stringify(profile),user.id).run();return {profile};
+ if('includeEverything' in input&&typeof input.includeEverything!=='boolean')fail('Choose whether to include other subjects.');
+ const profile={name,interests,includeEverything:interests.length?input.includeEverything===true:true,onboardingComplete:true};await env.DB.prepare('UPDATE users SET profile=? WHERE id=?').bind(JSON.stringify(profile),user.id).run();return {profile};
 }

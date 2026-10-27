@@ -34,3 +34,24 @@ test('question marking supports 2 through 10 choices and rejects mismatched gene
  const base={topic:'Numbers',q:'Which number is ten?',explanation:'Ten is 10.',concept:'ten',source:'https://example.org',aliases:[],follow:['Why?','How?','Where?']};
  for(const n of [2,10]){const q={...base,options:Array.from({length:n},(_,i)=>String(i)),correct:n-1};assert.equal(validateQuestion(q,[q.source],n),q);assert.equal(grade(q,{choice:n-1}).correct,true);assert.throws(()=>grade(q,{choice:n}));assert.throws(()=>validateQuestion(q,[q.source],n===2?10:2))}
 });
+
+test('random schedules stay within the window, spread notifications, and remain stable for the day',async()=>{
+ const {notificationTimes,validateNotificationWindow}=await import('../worker/core.mjs');
+ const settings={notificationMode:'random',randomStart:'08:00',randomEnd:'21:00',dailyAmount:10};
+ const times=await notificationTimes(settings,'2026-10-27','user-one');assert.equal(times.length,10);assert.equal(new Set(times).size,10);assert.deepEqual([...times].sort(),times);assert.ok(times.every(t=>t>='08:00'&&t<'21:00'));
+ assert.deepEqual(await notificationTimes(settings,'2026-10-27','user-one'),times);assert.notDeepEqual(await notificationTimes(settings,'2026-10-28','user-one'),times);assert.notDeepEqual(await notificationTimes(settings,'2026-10-27','user-two'),times);
+ assert.deepEqual(await notificationTimes({...settings,notificationsEnabled:false},'2026-10-27','user-one'),[]);
+ assert.deepEqual(await notificationTimes({time:'08:30',dailyAmount:1},'2026-10-27','user-one'),['08:30']);
+ for(const invalid of [{notificationMode:'chaos'},{randomStart:'25:00'},{randomEnd:'hello'}])assert.throws(()=>validateSettings(invalid));
+ assert.throws(()=>validateNotificationWindow({randomStart:'21:00',randomEnd:'08:00'}));
+});
+test('everything mixed with selected topics favours them two days in three without starving topics',async()=>{
+ const {topicForDay}=await import('../worker/ai.mjs');
+ const interests=['Chemistry','Poetry','History','Marine biology focused on sharks'];const selected=[],explored=[];
+ for(let i=0;i<30;i++){
+  const day=new Date(Date.UTC(2026,10,1+i)).toISOString().slice(0,10),mixed=topicForDay(day,interests,true);
+  (mixed.focused?selected:explored).push(mixed.topic);
+  assert.ok(interests.includes(topicForDay(day,interests,false).topic));assert.equal(topicForDay(day,[],true).focused,false);
+ }
+ assert.equal(selected.length,20);assert.equal(explored.length,10);assert.deepEqual(new Set(selected),new Set(interests));assert.ok(explored.every(t=>!interests.some(i=>i.toLowerCase().includes(t.toLowerCase()))));assert.ok(new Set(explored).size>3);
+});

@@ -15,7 +15,7 @@ before(async()=>{
   return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'Its gills take oxygen out of the water.'}]}]})};
   return new Response('Unexpected outbound request',{status:500});
  }}));
- db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
+ db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql','0005_shared_questions.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
  await db.batch(schema.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const q={topic:'Nature',q:'How many hearts does an octopus have?',options:['One','Two','Three','Four'],correct:2,explanation:'Three. Two serve its gills.',source:'https://www.nhm.ac.uk/',aliases:['3'],concept:'octopus-hearts',follow:['What do its gills do?','Why is its blood blue?','Do the hearts do the same job?']};
@@ -137,4 +137,42 @@ test('Gmail bridge uses the protected server-only connection and rejects failed 
  const env={APP_URL:origin,EMAIL_WEBHOOK_URL:'https://script.google.com/macros/s/test-deployment/exec',EMAIL_WEBHOOK_SECRET:'test-secret'};
  globalThis.fetch=async(url,options)=>{assert.equal(url,env.EMAIL_WEBHOOK_URL);const body=JSON.parse(options.body);assert.equal(body.secret,'test-secret');assert.equal(body.to,'mum@example.com');return Response.json({ok:true})};
  try{await sendEmail(env,{to:'mum@example.com',subject:'Fancy Knowing · Reset',text:'Test email',idempotencyKey:'test-key'});globalThis.fetch=async()=>Response.json({ok:false});await assert.rejects(()=>sendEmail(env,{to:'mum@example.com',subject:'Test',text:'Test',idempotencyKey:'test-key'}));await assert.rejects(()=>sendEmail({...env,EMAIL_WEBHOOK_URL:'https://wrong.example/exec'},{to:'mum@example.com',subject:'Test',text:'Test',idempotencyKey:'key'}))}finally{globalThis.fetch=originalFetch}
+});
+
+test('shared guest questions hide answers until a guess and never expose accounts or conversations',async()=>{
+ const owner=await login('nicole@example.com','x'),other=await login('mum@example.com','another-test-password');
+ assert.equal((await call('/questions/test-question/share',{method:'POST',body:{}})).status,401);
+ assert.equal((await call('/questions/test-question/share',{method:'POST',cookie:other.cookie,body:{}})).status,403);
+ const shared=await call('/questions/test-question/share',{method:'POST',cookie:owner.cookie,body:{}});assert.equal(shared.status,200);
+ const url=new URL(shared.data.url);assert.equal(url.origin,origin);const token=url.searchParams.get('share');assert.match(token,/^[a-f0-9]{64}$/);
+ assert.equal((await call('/questions/test-question/share',{method:'POST',cookie:owner.cookie,body:{}})).data.url,shared.data.url);
+ const guest=await call('/shared/'+token);assert.equal(guest.status,200);assert.deepEqual(Object.keys(guest.data.question).sort(),['options','q','topic']);assert.equal(guest.cookie,undefined);
+ const before=(await db.prepare('SELECT COUNT(*) AS n FROM attempts').first()).n;
+ const answer=await call(`/shared/${token}/answer`,{method:'POST',body:{choice:0}});assert.equal(answer.status,200);assert.equal(answer.data.question.correct,2);assert.equal(answer.data.question.attempt.correct,false);assert.ok(answer.data.question.explanation);assert.equal(answer.data.question.follow,undefined);assert.equal(answer.data.messages,undefined);assert.equal(answer.data.user,undefined);
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM attempts').first()).n,before);
+ assert.equal((await call(`/shared/${token}/answer`,{method:'POST',body:{choice:99}})).status,400);
+ assert.equal((await call(`/shared/${token}/answer`,{method:'POST',body:{choice:2},originHeader:'https://evil.test'})).status,403);
+ assert.equal((await call('/shared/'+'0'.repeat(64))).status,404);assert.equal((await call('/shared/not-a-token')).status,404);
+ assert.equal((await call('/questions/test-question/chat')).status,401);
+});
+test('saved discoveries retain private chat history through unsaving, resaving and blind refreshers',async()=>{
+ const owner=await login('nicole@example.com','x'),cookie=owner.cookie;
+ const before=await call('/questions/test-question/chat',{cookie});assert.equal(before.data.messages.length,2);
+ for(const saved of [false,true])assert.equal((await call('/questions/test-question/save',{method:'POST',cookie,body:{saved}})).status,200);
+ const library=await call('/library',{cookie});const q=library.data.questions.find(q=>q.id==='test-question');assert.equal(q.chatCount,2);assert.ok(q.saved);
+ const reopened=await call('/questions/test-question',{cookie});assert.ok(reopened.data.question.explanation);assert.equal((await call('/questions/test-question?blind=1',{cookie})).data.question.explanation,undefined);
+ assert.deepEqual((await call('/questions/test-question/chat',{cookie})).data.messages,before.data.messages);
+ const other=await login('mum@example.com','another-test-password');assert.equal((await call('/questions/test-question/chat',{cookie:other.cookie})).status,403);
+});
+test('random time windows and mixed interests persist and validate per account',async()=>{
+ const account=await login('nicole@example.com','x'),cookie=account.cookie;
+ const profile=await call('/profile',{method:'PUT',cookie,body:{name:'Nicole',interests:['Chemistry'],includeEverything:true}});assert.equal(profile.data.profile.includeEverything,true);
+ assert.equal((await call('/profile',{method:'PUT',cookie,body:{name:'Nicole',interests:['Chemistry'],includeEverything:'yes'}})).status,400);
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{notificationMode:'random',randomStart:'09:00',randomEnd:'17:00',dailyAmount:3,notificationsEnabled:true}})).status,200);
+ assert.equal((await call('/me',{cookie})).data.user.settings.notificationMode,'random');assert.equal((await call('/me',{cookie})).data.user.profile.includeEverything,true);
+ const schedule=await call('/notification-schedule',{cookie});assert.equal(schedule.status,200);assert.equal(schedule.data.deliveryAvailable,false);assert.equal(schedule.data.times.length,3);assert.deepEqual((await call('/notification-schedule',{cookie})).data,schedule.data);
+ assert.ok(schedule.data.times.every(time=>time>='09:00'&&time<'17:00'));
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{randomStart:'18:00'}})).status,400);assert.equal((await call('/me',{cookie})).data.user.settings.randomStart,'09:00');
+ assert.equal((await call('/settings',{method:'PUT',cookie,body:{randomStart:'09:00',randomEnd:'09:01',dailyAmount:3}})).status,400);
+ assert.equal((await call('/profile',{method:'PUT',cookie,body:{name:'Nicole',interests:[],includeEverything:false}})).data.profile.includeEverything,true);
 });

@@ -1,4 +1,4 @@
-import { fail, hash, DAY, validateSettings, localDay, grade } from './core.mjs';
+import { fail, hash, DAY, randomToken, validateSettings, validateNotificationWindow, notificationTimes, localDay, grade } from './core.mjs';
 import { budget, dailyQuestion, chatReply } from './ai.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
 import { deliverPendingWelcomes } from './mail.mjs';
@@ -17,7 +17,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
@@ -40,6 +40,19 @@ async function api(request,env,ctx){
  if(method==='POST'&&path==='/api/auth/forgot-password')return forgotPassword(request,env,await body(request));
  if(method==='POST'&&path==='/api/auth/reset-password')return resetPassword(request,env,await body(request));
  if(method==='POST'&&path==='/api/auth/confirm-email')return confirmEmail(env,await body(request));
+ const guest=path.match(/^\/api\/shared\/([a-f0-9]{64})(?:\/(answer))?$/);
+ if(guest){
+  const row=await env.DB.prepare('SELECT q.* FROM shared_questions s JOIN questions q ON q.id=s.question_id WHERE s.token=?').bind(guest[1]).first();
+  if(!row)fail('This shared question could not be found.',404);
+  const q=JSON.parse(row.data),question={topic:q.topic,q:q.q,options:q.options};
+  if(method==='GET'&&!guest[2])return json({question},200,{'Cache-Control':'no-store'});
+  if(method==='POST'&&guest[2]==='answer'){
+   const result=grade(q,await body(request));
+   return json({question:{...question,correct:q.correct,explanation:q.explanation,attempt:{choice:result.choice,typed:result.typed,correct:result.correct}}},200,{'Cache-Control':'no-store'});
+  }
+  fail('Method not allowed.',405);
+ }
+ if(path.startsWith('/api/shared/'))fail('This shared question could not be found.',404);
  const user=await userFor(request,env);
  if(method==='POST'&&path==='/api/auth/logout'){
   await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(tokenFrom(request))).run();return json({ok:true},200,{'Set-Cookie':sessionCookie('',0)});
@@ -62,7 +75,11 @@ async function api(request,env,ctx){
   await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatar,user.id).run();return json({avatar});
  }
  if(method==='PUT'&&path==='/api/settings'){
-  const settings={...JSON.parse(user.settings),...validateSettings(await body(request))};await env.DB.prepare('UPDATE users SET settings=? WHERE id=?').bind(JSON.stringify(settings),user.id).run();return json({settings});
+  const settings=validateNotificationWindow({...JSON.parse(user.settings),...validateSettings(await body(request))});await env.DB.prepare('UPDATE users SET settings=? WHERE id=?').bind(JSON.stringify(settings),user.id).run();return json({settings});
+ }
+ if(method==='GET'&&path==='/api/notification-schedule'){
+  const settings=JSON.parse(user.settings),timezone=settings.timezone||'Europe/London',day=localDay(timezone);
+  return json({day,timezone,times:await notificationTimes(settings,day,user.id),deliveryAvailable:false});
  }
  if(method==='GET'&&path==='/api/today'){
   const timezone=JSON.parse(user.settings).timezone||'Europe/London',day=localDay(timezone);
@@ -70,7 +87,7 @@ async function api(request,env,ctx){
   let row=assignment;
   if(!row){
    const profile=JSON.parse(user.profile||'{}');
-   row=await dailyQuestion(env,day,profile.interests||[],JSON.parse(user.settings).answerCount||4);
+   row=await dailyQuestion(env,day,profile.interests||[],JSON.parse(user.settings).answerCount||4,profile.includeEverything===true);
    await env.DB.prepare('INSERT INTO daily_assignments(user_id,day,question_id) VALUES (?,?,?) ON CONFLICT(user_id,day) DO NOTHING').bind(user.id,day,row.id).run();
    row=await env.DB.prepare('SELECT q.* FROM daily_assignments a JOIN questions q ON q.id=a.question_id WHERE a.user_id=? AND a.day=?').bind(user.id,day).first();
   }
@@ -78,14 +95,20 @@ async function api(request,env,ctx){
   return json({question:reveal(row,attempt),saved:saved?{due:saved.due_at}:null});
  }
  if(method==='GET'&&path==='/api/library'){
-  const rows=await env.DB.prepare('SELECT q.*,s.due_at,s.saved_at FROM questions q LEFT JOIN saved s ON s.question_id=q.id AND s.user_id=? WHERE s.user_id=? OR EXISTS(SELECT 1 FROM attempts a WHERE a.question_id=q.id AND a.user_id=?) ORDER BY q.created_at DESC LIMIT 300').bind(user.id,user.id,user.id).all();
-  const questions=[];for(const row of rows.results)questions.push({...reveal(row,await latest(env,user.id,row.id)),saved:row.due_at?{due:row.due_at}:null});
+  const rows=await env.DB.prepare('SELECT q.*,s.due_at,s.saved_at,(SELECT COUNT(*) FROM chats c WHERE c.user_id=? AND c.question_id=q.id) AS chat_count FROM questions q LEFT JOIN saved s ON s.question_id=q.id AND s.user_id=? WHERE s.user_id=? OR EXISTS(SELECT 1 FROM attempts a WHERE a.question_id=q.id AND a.user_id=?) ORDER BY q.created_at DESC LIMIT 300').bind(user.id,user.id,user.id,user.id).all();
+  const questions=[];for(const row of rows.results)questions.push({...reveal(row,await latest(env,user.id,row.id)),chatCount:row.chat_count,saved:row.due_at?{due:row.due_at}:null});
   return json({questions});
  }
- const match=path.match(/^\/api\/questions\/([^/]+)(?:\/(answer|save|chat))?$/);
+ const match=path.match(/^\/api\/questions\/([^/]+)(?:\/(answer|save|chat|share))?$/);
  if(match){
   const row=await questionFor(env,match[1]),q=JSON.parse(row.data),action=match[2];
   if(method==='GET'&&!action)return json({question:reveal(row,await latest(env,user.id,row.id),url.searchParams.get('blind')==='1')});
+  if(method==='POST'&&action==='share'){
+   if(!await latest(env,user.id,row.id))fail('Take a guess before sharing this question.',403);
+   await env.DB.prepare('INSERT INTO shared_questions(token,question_id,created_at) VALUES (?,?,?) ON CONFLICT(question_id) DO NOTHING').bind(randomToken(),row.id,Date.now()).run();
+   const shared=await env.DB.prepare('SELECT token FROM shared_questions WHERE question_id=?').bind(row.id).first();
+   return json({url:url.origin+'/?share='+shared.token});
+  }
   if(method==='POST'&&action==='answer'){
    const input=await body(request),result=grade(q,input),now=Date.now();
    if(typeof input.attemptId!=='string'||! /^[a-f0-9-]{36}$/.test(input.attemptId))fail('Missing answer identifier.');
@@ -140,7 +163,7 @@ export default {
    await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM email_tokens WHERE expires_at<? OR used_at IS NOT NULL').bind(Date.now())]);
    const users=await env.DB.prepare('SELECT profile,settings FROM users ORDER BY created_at LIMIT 20').all();
    const profiles=users.results.length?users.results:[{profile:'{}',settings:'{}'}];
-   for(const u of profiles)for(const offset of [0,1])try{await dailyQuestion(env,localDay(JSON.parse(u.settings).timezone||'Europe/London',new Date(Date.now()+offset*DAY)),JSON.parse(u.profile||'{}').interests||[],JSON.parse(u.settings).answerCount||4)}catch(e){console.error('Scheduled question failed',e.status||500)}
+   for(const u of profiles)for(const offset of [0,1])try{await dailyQuestion(env,localDay(JSON.parse(u.settings).timezone||'Europe/London',new Date(Date.now()+offset*DAY)),JSON.parse(u.profile||'{}').interests||[],JSON.parse(u.settings).answerCount||4,JSON.parse(u.profile||'{}').includeEverything===true)}catch(e){console.error('Scheduled question failed',e.status||500)}
   })());
  }
 };
