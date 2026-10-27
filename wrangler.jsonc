@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fancy-knowing",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-10-26",
+  "workers_dev": true,
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "vars": { "OPENAI_MODEL": "gpt-4.1-mini" },
+  "d1_databases": [{
+    "binding": "DB", "database_name": "fancy-knowing-db",
+    "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+    "migrations_dir": "migrations"
+  }],
+  "triggers": { "crons": ["0 3 * * *"] }
+}
