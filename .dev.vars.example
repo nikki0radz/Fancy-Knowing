@@ -1,2 +1,6 @@
 OPENAI_API_KEY=put-your-key-in-the-ignored-.dev.vars-file-only
 SIGNUP_CODE=choose-a-private-code-for-you-and-your-mum
+
+# Optional: enables recovery/confirmation email once configured
+RESEND_API_KEY=your-resend-sending-api-key
+EMAIL_FROM=Fancy Knowing <onboarding@resend.dev>

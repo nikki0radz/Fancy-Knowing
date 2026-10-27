@@ -20,3 +20,9 @@ test('questions require four distinct choices, three prompts and an observed cit
  assert.equal(validateQuestion(q,[q.source]),q);assert.throws(()=>validateQuestion(q,[]));assert.throws(()=>validateQuestion({...q,options:['A','A','C','D']},[q.source]));
  assert.deepEqual(citations({output:[{content:[{annotations:[{type:'url_citation',url:q.source},{type:'url_citation',url:'javascript:bad'}]}]}]}),[q.source]);
 });
+test('email addresses normalise case; simple passwords remain allowed',async()=>{
+ const {email}=await import('../worker/auth.mjs');const {password}=await import('../worker/core.mjs');
+ assert.equal(email(' Nicole+trivia@Example.COM '),'nicole+trivia@example.com');
+ for(const value of ['not-an-email','a@b','a b@example.com','a..b@example.com',null])assert.throws(()=>email(value));
+ assert.equal(password('a'),'a');assert.throws(()=>password(''));
+});

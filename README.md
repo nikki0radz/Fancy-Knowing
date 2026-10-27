@@ -14,19 +14,21 @@ First create the D1 database, then insert its Database ID into `wrangler.jsonc`.
 
 ## Implemented
 
-- Separate invitation-only username/password accounts with secure persistent sessions and logout.
-- A shared daily AI question researched with web search and a cited source, validated choices, short explanation and three follow-up prompts.
+- Separate invitation-only email/password accounts with secure persistent sessions and logout.
+- An interest-based daily AI question researched with web search and a cited source, validated choices, short explanation and three follow-up prompts.
 - Multiple choice and typed answers with answer aliases, marked on the server.
 - Concise live follow-up chat, saved per account and question.
 - Persistent answer attempts, saved bank, history, blind review and review due dates.
+- Two-step name and interest setup, pill-grid subjects and AI-validated custom topics.
+- Email reset links and confirmed email migration for existing username accounts.
 - Light/dark mode and saved reminder time.
 - Per-user API budgets, signup/login limits, origin checks and server-side data ownership.
 
 ## Still to do
 
-Cloudflare deployment and live API verification require the user's database ID and runtime secrets. The older ChatGPT-hosted URL remains the static prototype. The connected version runs at the Cloudflare Worker URL once deployed.
+The connected app runs at https://fancy-knowing.nikki0radz.workers.dev. The older ChatGPT-hosted URL remains the static prototype. Password recovery additionally requires Resend email delivery; see [EMAIL-SETUP.md](EMAIL-SETUP.md).
 
-Android APK and notification delivery are not implemented in this commit. Reminder time is stored only. Password recovery/email verification are not implemented. AI citations and checks reduce factual errors but do not make the content infallible.
+Android APK and notification delivery are not implemented in this commit. Reminder time is stored only. Password recovery and email changes need Resend settings; see EMAIL-SETUP.md. AI citations and checks reduce factual errors but do not make the content infallible.
 
 ## Development
 

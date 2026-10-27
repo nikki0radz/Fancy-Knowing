@@ -54,19 +54,19 @@ Open the exact `workers.dev` address shown by Cloudflare. Use this address for t
 
 Visit `/api/health` at that address. It should report `app: "fancy-knowing"` and `database`, `ai`, `accounts` all `true`. These flags confirm bindings/secrets exist; successful sign-in and a generated question are the actual end-to-end check.
 
-Create one account for yourself and a different one for your mum. The first question can take a minute to research and prepare. The daily question is shared; your answers, hearts, chats and settings are private to each account. After answering, try a suggested follow-up and a question of your own, save a question, then reload to confirm persistence. Sign in to the other account to confirm its bank starts separately.
+Create one account for yourself and a different one for your mum. The first question can take a minute to research and prepare. Daily questions follow each account’s chosen interests; your answers, hearts, chats and settings are private to each account. After answering, try a suggested follow-up and a question of your own, save a question, then reload to confirm persistence. Sign in to the other account to confirm its bank starts separately.
 
 Send the Worker URL back so the deployed app can be verified and used in the Android package. Never send the OpenAI key or invitation code.
 
 ## Current scope
 
-Implemented: username/password accounts, 90-day sessions, logout, daily sourced AI question, concise live follow-up chat, per-account history, saved questions, blind reviews, due dates, account settings. Server-side passwords are salted PBKDF2 hashes. Session tokens are stored hashed in D1 and sent in secure HttpOnly cookies. API usage is limited per user; account creation needs the invitation code.
+Implemented: email/password accounts, 90-day sessions, logout, daily sourced AI question, concise live follow-up chat, per-account history, saved questions, blind reviews, due dates, account settings. Server-side passwords are salted PBKDF2 hashes. Session tokens are stored hashed in D1 and sent in secure HttpOnly cookies. API usage is limited per user; account creation needs the invitation code.
 
 The question generator uses web search, requires a returned citation, then requests a validated JSON quiz based on the evidence. Structural checks and duplicate rejection reduce errors; they do not guarantee every factual claim. Follow-up chats do not browse by default and should admit uncertainty. Source links are visible after answering.
 
-The nightly cron prepares today/tomorrow's shared questions and clears expired sessions/budgets. It does **not** send phone notifications. Notification delivery and the APK are the next stage. Reminder times are saved, but not active phone alarms yet. Initial accounts use Europe/London dates.
+The nightly cron prepares interest-based questions for today/tomorrow and clears expired sessions/budgets. It does **not** send phone notifications. Notification delivery and the APK are the next stage. Reminder times are saved, but not active phone alarms yet. Initial accounts use Europe/London dates.
 
-Password reset and email verification are not implemented; the signup screen tells users to keep their password in a password manager. These are invitation-only personal accounts, not a public launch.
+Password recovery and confirmed email changes are implemented. Configure the email sender using EMAIL-SETUP.md before trying them. Existing username accounts can sign in once using the legacy option and attach an email without losing their history. Accounts remain invitation-only.
 
 ## Local development (optional)
 

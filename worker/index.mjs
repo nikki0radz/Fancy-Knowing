@@ -1,61 +1,51 @@
-import { fail, username, password, passwordHash, randomToken, hash, equal, DAY, SESSION_DAYS, validateSettings, localDay, grade } from './core.mjs';
+import { fail, hash, DAY, validateSettings, localDay, grade } from './core.mjs';
 import { budget, dailyQuestion, chatReply } from './ai.mjs';
-const COOKIE='__Host-fancy-session';
-const json=(value,status=200,headers={})=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
-const sessionCookie=(token,age=SESSION_DAYS*86400)=>`${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
+import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
+import { SUBJECTS, approveTopic, updateProfile } from './profiles.mjs';
 async function body(request) {
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('Use JSON for this request.',415);
  const reader=request.body?.getReader();if(!reader)fail('Missing request body.');let size=0,chunks=[];
  while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>16000){await reader.cancel();fail('This request is too large.',413)}chunks.push(value)}
  const bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length}try{const value=JSON.parse(new TextDecoder().decode(bytes));if(!value||typeof value!=='object'||Array.isArray(value))fail('Invalid request.');return value}catch{fail('Invalid request.',400)}
 }
-function tokenFrom(request){return request.headers.get('Cookie')?.split(';').map(s=>s.trim()).find(s=>s.startsWith(COOKIE+'='))?.slice(COOKIE.length+1)||''}
-async function userFor(request,env){const token=tokenFrom(request);if(!/^[a-f0-9]{64}$/.test(token))fail('Please sign in.',401);const row=await env.DB.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').bind(await hash(token),Date.now()).first();if(!row)fail('Please sign in again.',401);return row}
-const publicUser=u=>({id:u.id,username:u.username,settings:JSON.parse(u.settings)});
 async function questionFor(env,id){if(typeof id!=='string'||id.length>80)fail('Invalid question.');const row=await env.DB.prepare('SELECT * FROM questions WHERE id=?').bind(id).first();if(!row)fail('Question not found.',404);return row}
 async function latest(env,userId,questionId){return env.DB.prepare('SELECT * FROM attempts WHERE user_id=? AND question_id=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(userId,questionId).first()}
-function reveal(row,attempt=null,blind=false){const q=JSON.parse(row.data);return {id:row.id,day:row.day,topic:q.topic,q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
-async function signin(request,env,path){
- if(!env.SIGNUP_CODE)fail('Account setup is not finished in Cloudflare yet.',503);
- const input=await body(request);const name=username(input.username),pass=password(input.password);
- const ip=request.headers.get('CF-Connecting-IP')||'local';const bucket=Math.floor(Date.now()/3600000);
- await budget(env,`auth-ip:${await hash(ip)}:${bucket}`,30,Date.now()+2*3600000);
- await budget(env,`auth-name:${await hash(name)}:${bucket}`,15,Date.now()+2*3600000);
- let user;
- if(path==='/api/auth/signup'){
-  if(typeof input.code!=='string'||input.code.length>200||!equal(await hash(input.code),await hash(env.SIGNUP_CODE)))fail('The invitation code is incorrect.',403);
-  const salt=randomToken(),pw=await passwordHash(pass,salt);const id=crypto.randomUUID();
-  const settings=JSON.stringify({theme:'dark',time:'08:00',timezone:'Europe/London'});
-  try{await env.DB.prepare('INSERT INTO users(id,username,password_hash,salt,settings,created_at) VALUES (?,?,?,?,?,?)').bind(id,name,pw,salt,settings,Date.now()).run()}catch(e){if(String(e).includes('UNIQUE'))fail('That username is already taken.',409);throw e}
-  user={id,username:name,settings};
- }else{
-  user=await env.DB.prepare('SELECT * FROM users WHERE username=?').bind(name).first();
-  const calculated=await passwordHash(pass,user?.salt||'dummy-salt-for-invalid-login');
-  if(!user||!equal(calculated,user.password_hash))fail('Username or password is incorrect.',401);
- }
- const token=randomToken();await env.DB.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES (?,?,?)').bind(await hash(token),user.id,Date.now()+SESSION_DAYS*DAY).run();
- return json({user:publicUser(user)},200,{'Set-Cookie':sessionCookie(token)});
-}
+function reveal(row,attempt=null,blind=false){const q=JSON.parse(row.data);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
 async function api(request,env){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE});
+ if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.3.0',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env)});
  if(!env.DB)fail('The DB database binding is missing in Cloudflare.',503);
  if(!['GET','POST','PUT','DELETE'].includes(method))fail('Method not allowed.',405);
  if(method!=='GET'){
   const origin=request.headers.get('Origin');if(origin!==url.origin)fail('Open the app at its Cloudflare address before signing in.',403);
   if(request.headers.get('Sec-Fetch-Site')==='cross-site')fail('Cross-site request blocked.',403);
  }
- if(method==='POST'&&['/api/auth/signup','/api/auth/login'].includes(path))return signin(request,env,path);
+ if(method==='POST'&&['/api/auth/signup','/api/auth/login'].includes(path))return signin(request,env,path,await body(request));
+ if(method==='POST'&&path==='/api/auth/forgot-password')return forgotPassword(request,env,await body(request));
+ if(method==='POST'&&path==='/api/auth/reset-password')return resetPassword(request,env,await body(request));
+ if(method==='POST'&&path==='/api/auth/confirm-email')return confirmEmail(env,await body(request));
  const user=await userFor(request,env);
  if(method==='POST'&&path==='/api/auth/logout'){
   await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(tokenFrom(request))).run();return json({ok:true},200,{'Set-Cookie':sessionCookie('',0)});
  }
  if(method==='GET'&&path==='/api/me')return json({user:publicUser(user)});
+ if(method==='POST'&&path==='/api/account/email')return requestEmailChange(request,env,user,await body(request));
+ if(method==='GET'&&path==='/api/topics'){const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? ORDER BY created_at').bind(user.id).all();return json({subjects:SUBJECTS,custom:custom.results.map(r=>r.topic)})}
+ if(method==='POST'&&path==='/api/topics')return json(await approveTopic(env,user,(await body(request)).topic));
+ if(method==='PUT'&&path==='/api/profile')return json(await updateProfile(env,user,await body(request)));
  if(method==='PUT'&&path==='/api/settings'){
   const settings={...JSON.parse(user.settings),...validateSettings(await body(request))};await env.DB.prepare('UPDATE users SET settings=? WHERE id=?').bind(JSON.stringify(settings),user.id).run();return json({settings});
  }
  if(method==='GET'&&path==='/api/today'){
-  const timezone=JSON.parse(user.settings).timezone||'Europe/London',row=await dailyQuestion(env,localDay(timezone));
+  const timezone=JSON.parse(user.settings).timezone||'Europe/London',day=localDay(timezone);
+  const assignment=await env.DB.prepare('SELECT q.* FROM daily_assignments a JOIN questions q ON q.id=a.question_id WHERE a.user_id=? AND a.day=?').bind(user.id,day).first();
+  let row=assignment;
+  if(!row){
+   const profile=JSON.parse(user.profile||'{}');
+   row=await dailyQuestion(env,day,profile.interests||[]);
+   await env.DB.prepare('INSERT INTO daily_assignments(user_id,day,question_id) VALUES (?,?,?) ON CONFLICT(user_id,day) DO NOTHING').bind(user.id,day,row.id).run();
+   row=await env.DB.prepare('SELECT q.* FROM daily_assignments a JOIN questions q ON q.id=a.question_id WHERE a.user_id=? AND a.day=?').bind(user.id,day).first();
+  }
   const attempt=await latest(env,user.id,row.id);const saved=await env.DB.prepare('SELECT due_at FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();
   return json({question:reveal(row,attempt),saved:saved?{due:saved.due_at}:null});
  }
@@ -117,8 +107,10 @@ export default {
  async scheduled(event,env,ctx){
   ctx.waitUntil((async()=>{
    if(!env.DB||!env.OPENAI_API_KEY)return;
-   await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now())]);
-   for(const offset of [0,1])try{await dailyQuestion(env,localDay('Europe/London',new Date(Date.now()+offset*DAY)))}catch(e){console.error('Scheduled question failed',e.status||500)}
+   await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM email_tokens WHERE expires_at<? OR used_at IS NOT NULL').bind(Date.now())]);
+   const users=await env.DB.prepare('SELECT profile,settings FROM users ORDER BY created_at LIMIT 20').all();
+   const profiles=users.results.length?users.results:[{profile:'{}',settings:'{}'}];
+   for(const u of profiles)for(const offset of [0,1])try{await dailyQuestion(env,localDay(JSON.parse(u.settings).timezone||'Europe/London',new Date(Date.now()+offset*DAY)),JSON.parse(u.profile||'{}').interests||[])}catch(e){console.error('Scheduled question failed',e.status||500)}
   })());
  }
 };
