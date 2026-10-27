@@ -154,3 +154,13 @@ test('quiz batches compare semantic vectors between peers, including reversed an
  const a=make('Which fish is biggest?','largest fish identity'),b=make('Whale sharks hold which size record?','ocean creature size record'),c=make('How do hammerheads sense prey?','hammerhead electrical sensing');
  assert.deepEqual(freshBatch([a,b,c],[[1,0],[.99,.01],[0,1]]),[a,c]);
 });
+
+test('Candy Cloud replaces the old default palette while keeping custom colours',async()=>{
+ const {readFile}=await import('node:fs/promises'),{runInNewContext}=await import('node:vm');
+ const context={window:{}};runInNewContext(await readFile(new URL('../design.js',import.meta.url),'utf8'),context);
+ const colours=context.window.FancyDesign.colours;
+ assert.equal(colours({},'light').accent,'#7441c5');assert.equal(colours({},'dark').background,'#191329');
+ assert.equal(colours({accentLight:'#d8ac47',backgroundLight:'#f2ede3'},'light').background,'#f7f1ff');
+ assert.equal(colours({accentLight:'#123456',backgroundLight:'#abcdef'},'light').accent,'#123456');
+ assert.equal(colours({accentLight:'#123456',backgroundLight:'#abcdef'},'light').background,'#abcdef');
+});

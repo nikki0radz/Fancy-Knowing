@@ -283,7 +283,7 @@ function renderSettings(){
  document.querySelectorAll('[data-font]').forEach(b=>b.onclick=async()=>{try{await saveSettings({font:b.dataset.font});renderSettings()}catch(e){toast(e.message)}});
  $('#fontSize').oninput=e=>{const fontSize=Number(e.target.value);$('#fontSizeValue').textContent=fontSize+'%';FancyDesign.apply({...s,theme,fontSize})};
  $('#fontSize').onchange=async e=>{try{await saveSettings({fontSize:Number(e.target.value)})}catch(err){applyTheme(theme);toast(err.message)}};
- $('#resetdesign').onclick=async()=>{try{await saveSettings({font:'clean',fontSize:100,accentDark:'#d8ac47',accentLight:'#d8ac47',backgroundDark:'#101426',backgroundLight:'#f2ede3'});renderSettings();toast('Design reset')}catch(e){toast(e.message)}};
+ $('#resetdesign').onclick=async()=>{try{await saveSettings({font:'clean',fontSize:100,accentDark:'#c3a2ff',accentLight:'#7441c5',backgroundDark:'#191329',backgroundLight:'#f7f1ff'});renderSettings();toast('Design reset')}catch(e){toast(e.message)}};
  for(const key of ['answerCount']){$('#'+key).oninput=e=>$('#'+key+'Value').textContent=e.target.value;$('#'+key).onchange=async e=>{try{await saveSettings({[key]:Number(e.target.value)})}catch(err){toast(err.message);renderSettings()}}}
  $('#notificationsEnabled').onchange=async e=>{if(!e.target.checked){editingReminderSlot=null;reminderDraft=null}try{await saveSettings({notificationsEnabled:e.target.checked});renderSettings()}catch(err){toast(err.message);renderSettings()}};
  document.querySelectorAll('[data-reminder-menu]').forEach(b=>b.onclick=()=>openReminderMenu(b.dataset.reminderMenu,b));
