@@ -438,7 +438,7 @@ test('one quiz accepts multiple guests and friends, reports their scores and res
  assert.equal((await call('/questions/'+questionId+'/chat',{cookie:guestCookie,method:'POST',body:{message:'Why?'}})).status,401);assert.equal((await call('/questions/'+questionId+'/save',{cookie:guestCookie,method:'POST',body:{saved:true}})).status,401);
  const callsBefore=generationCalls;const verdict=await call(path+'/verdict',{cookie:guestCookie,method:'POST',body:{}});assert.equal(verdict.status,200);assert.equal(generationCalls,callsBefore);
  assert.equal((await call('/games/'+id+'/close',{cookie:friendA.cookie,method:'POST',body:{}})).status,403);assert.equal((await call('/games/'+id+'/close',{cookie:h,method:'POST',body:{}})).status,200);assert.equal((await call(path+'/join',{method:'POST',body:{name:'Too late'}})).status,409);
- const notices=(await call('/notifications',{cookie:h})).data;assert.ok(notices.notifications.some(n=>n.gameId===id&&n.title.includes('finished')));
+ const notices=(await call('/notifications',{cookie:h})).data;assert.ok(notices.notifications.some(n=>n.gameId===id&&n.title.includes('completed your challenge')));
 });
 test('a solo quiz becomes shareable without losing its saved answers, and timers survive refresh',async()=>{
  const host=await call('/auth/signup',{method:'POST',ip:'192.0.2.40',body:{email:'timer-host@example.test',password:'x',code:'private-test-code'}}),cookie=host.cookie;
@@ -492,4 +492,21 @@ test('testing mode bypasses quiz quotas while preserving private access and prep
  assert.equal(await db.prepare('SELECT key FROM locks WHERE key=?').bind('create-game:'+id).first(),null);
  await assert.rejects(()=>gamesApi(new Request(origin+'/api/games/quota'),env,null,async()=>({})),/Sign in first/);
  const deploy=JSON.parse(await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8'));assert.equal(deploy.vars.QUIZ_LIMITS_ENABLED,'false');
+});
+
+
+test('dashboard counts today’s distinct answers and quiz participation, with real generation allowance',async()=>{
+ const account=await call('/auth/signup',{method:'POST',ip:'192.0.2.79',body:{email:'dashboard@example.test',password:'x',code:'private-test-code'}}),cookie=account.cookie,id=account.data.user.id,now=Date.now(),old=now-3*86400000;
+ await call('/profile',{cookie,method:'PUT',body:{name:'Dashboard',interests:['History'],includeEverything:false}});
+ for(const [suffix,time] of [['a',now],['b',now],['old',old]])await db.prepare('INSERT INTO attempts(id,user_id,question_id,choice,correct,created_at) VALUES (?,?,?,?,?,?)').bind('dashboard-'+suffix,id,'test-question',0,1,time).run();
+ const make=kind=>call('/games',{cookie,method:'POST',body:{kind,topic:'History',difficulty:'easy',count:2,requestId:crypto.randomUUID()}});
+ const solo=await make('solo'),group=await make('challenge');assert.equal(solo.status,200);assert.equal(group.status,200);
+ await db.prepare('UPDATE trivia_players SET joined_at=?,completed_at=? WHERE game_id=?').bind(old,now,solo.data.game.id).run();
+ const home=await call('/home',{cookie});assert.deepEqual(home.data.stats,{questionsToday:1,quizzesToday:2});assert.equal(home.data.quizAllowance.remaining,28);assert.equal(home.data.quizAllowance.limited,true);
+ await db.prepare('UPDATE trivia_players SET completed_at=? WHERE game_id=?').bind(old,solo.data.game.id).run();assert.equal((await call('/home',{cookie})).data.stats.quizzesToday,1);
+ const friend=await call('/auth/signup',{method:'POST',ip:'192.0.2.80',body:{email:'dashboard-friend@example.test',password:'x',code:'private-test-code'}}),friendCookie=friend.cookie;
+ await call('/friends',{cookie,method:'POST',body:{username:friend.data.user.username}});const requests=await call('/friends',{cookie:friendCookie}),pending=requests.data.friends.find(f=>f.id===id);
+ assert.ok(pending);assert.equal((await call('/friends/'+id+'/accept',{cookie:friendCookie,method:'POST',body:{}})).status,200);
+ await call('/games/'+group.data.game.id+'/invite',{cookie,method:'POST',body:{friendIds:[friend.data.user.id]}});
+ const notices=(await call('/notifications',{cookie:friendCookie})).data;assert.ok(notices.notifications.some(n=>n.title==='Dashboard just invited you to a challenge'));
 });

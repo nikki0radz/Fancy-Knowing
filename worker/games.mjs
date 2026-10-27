@@ -54,6 +54,11 @@ async function answer(env,game,player,input){
   if(count+1===game.question_count){await env.DB.prepare(`UPDATE ${playerTable(game)} SET completed_at=?,score=(SELECT SUM(correct) FROM ${answerTable(game)} WHERE player_id=?) WHERE id=? AND completed_at IS NULL`).bind(Date.now(),player.id,player.id).run();await finishGame(env,game,player)}
  }finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(key).run()}
 }
+export async function quizAllowance(env,user){
+ if(env.QUIZ_LIMITS_ENABLED==='false')return {limited:false,limit:null,remaining:null,day:localDay()};
+ const row=await env.DB.prepare('SELECT count,expires_at FROM budgets WHERE key=?').bind(`completed-games:${user.id}:${localDay()}`).first(),used=row&&row.expires_at>Date.now()?row.count:0;
+ return {limited:true,limit:30,used,remaining:Math.max(0,30-used),day:localDay()};
+}
 export async function gamesApi(request,env,user,body){
  const url=new URL(request.url),path=url.pathname,method=request.method;
  const invite=path.match(/^\/api\/challenges\/([a-f0-9]{64})(?:\/(join|answer|verdict))?$/);
@@ -75,10 +80,10 @@ export async function gamesApi(request,env,user,body){
  }
  if(path.startsWith('/api/challenges/'))fail('This challenge could not be found.',404);
  if(!user)fail('Sign in first.',401);
- if(method==='GET'&&path==='/api/games/quota'){if(env.QUIZ_LIMITS_ENABLED==='false')return json({limited:false,limit:null,remaining:null,day:localDay()},200,{'Cache-Control':'no-store'});const row=await env.DB.prepare('SELECT count,expires_at FROM budgets WHERE key=?').bind(`completed-games:${user.id}:${localDay()}`).first(),used=row&&row.expires_at>Date.now()?row.count:0;return json({limited:true,limit:30,used,remaining:Math.max(0,30-used),day:localDay()},200,{'Cache-Control':'no-store'})}
+ if(method==='GET'&&path==='/api/games/quota')return json(await quizAllowance(env,user),200,{'Cache-Control':'no-store'});
  if(method==='GET'&&path==='/api/notifications'){
-  const rows=await env.DB.prepare('SELECT n.id,n.game_id,n.created_at,n.read_at,n.kind,n.message,g.topic FROM challenge_notifications n JOIN trivia_games g ON g.id=n.game_id WHERE n.user_id=? ORDER BY n.created_at DESC LIMIT 100').bind(user.id).all();
-  return json({notifications:rows.results.map(n=>({id:n.id,gameId:n.game_id,type:n.kind==='invite'?'challenge_invite':'challenge_result',title:n.kind==='invite'?'You have a new challenge':n.kind==='score'?(n.message||'A quiz score is ready'):'Your challenge result is ready',topic:n.topic,createdAt:n.created_at,read:!!n.read_at})),unread:rows.results.filter(n=>!n.read_at).length});
+  const rows=await env.DB.prepare(`SELECT n.id,n.game_id,n.created_at,n.read_at,n.kind,n.message,g.topic,COALESCE(json_extract(u.profile,'$.name'),'A friend') host_name FROM challenge_notifications n JOIN trivia_games g ON g.id=n.game_id JOIN users u ON u.id=g.creator_id WHERE n.user_id=? ORDER BY n.created_at DESC LIMIT 100`).bind(user.id).all();
+  return json({notifications:rows.results.map(n=>({id:n.id,gameId:n.game_id,type:n.kind==='invite'?'challenge_invite':'challenge_result',title:n.kind==='invite'?n.host_name+' just invited you to a challenge':n.kind==='score'?(n.message?.replace(/ finished your quiz$/,' just completed your challenge')||'A quiz score is ready'):'Your challenge results are ready',topic:n.topic,createdAt:n.created_at,read:!!n.read_at})),unread:rows.results.filter(n=>!n.read_at).length});
  }
  const read=path.match(/^\/api\/notifications\/([a-f0-9-]{36})\/read$/);if(method==='POST'&&read){await env.DB.prepare('UPDATE challenge_notifications SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=?').bind(Date.now(),read[1],user.id).run();return json({ok:true})}
  if(method==='GET'&&path==='/api/games'){

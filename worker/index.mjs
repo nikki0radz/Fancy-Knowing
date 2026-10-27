@@ -5,7 +5,7 @@ import {assignDiscovery,assignedQuestion,daySlots} from './discoveries.mjs';
 import {readyCount,nextReady,prepareReady} from './ready.mjs';
 import {displayQuestion,formatUnits} from './quiz.mjs';
 import {friendsApi} from './friends.mjs';
-import {gamesApi} from './games.mjs';
+import {gamesApi,quizAllowance} from './games.mjs';
 import { deliverPendingWelcomes } from './mail.mjs';
 import { SUBJECTS, approveTopic, updateProfile } from './profiles.mjs';
 async function body(request,limit=16000) {
@@ -64,7 +64,13 @@ async function api(request,env,ctx){
  const user=await userFor(request,env);
  if(path==='/api/friends'||path.startsWith('/api/friends/'))return friendsApi(request,env,user,body);
  if(path==='/api/games'||path.startsWith('/api/games/')||path==='/api/notifications'||path.startsWith('/api/notifications/'))return gamesApi(request,env,user,body);
- if(method==='GET'&&path==='/api/home'){const settings=JSON.parse(user.settings),day=localDay(settings.timezone||'Europe/London');return json({day,readyCount:await readyCount(env,user),count:settings.dailyAmount||1,slots:await daySlots(env,user.id,day,settings.dailyAmount||1)})}
+ if(method==='GET'&&path==='/api/home'){
+  const settings=JSON.parse(user.settings),timezone=settings.timezone||'Europe/London',day=localDay(timezone),now=Date.now(),since=now-2*DAY;
+  const [slots,ready,allowance,answers,players]=await Promise.all([daySlots(env,user.id,day,settings.dailyAmount||1),readyCount(env,user),quizAllowance(env,user),env.DB.prepare('SELECT question_id,created_at FROM attempts WHERE user_id=? AND created_at>=? AND created_at<=?').bind(user.id,since,now).all(),env.DB.prepare('SELECT game_id,joined_at,completed_at FROM trivia_players WHERE user_id=? AND (joined_at>=? OR completed_at>=?) UNION ALL SELECT game_id,joined_at,completed_at FROM quiz_participants WHERE user_id=? AND (joined_at>=? OR completed_at>=?)').bind(user.id,since,since,user.id,since,since).all()]);
+  const isToday=time=>!!time&&time<=now&&localDay(timezone,new Date(time))===day;
+  return json({day,readyCount:ready,count:settings.dailyAmount||1,slots,stats:{questionsToday:new Set(answers.results.filter(a=>isToday(a.created_at)).map(a=>a.question_id)).size,quizzesToday:new Set(players.results.filter(p=>isToday(p.joined_at)||isToday(p.completed_at)).map(p=>p.game_id)).size},quizAllowance:allowance},200,{'Cache-Control':'no-store'});
+ }
+
  if(method==='POST'&&path==='/api/discoveries/next')return json(await nextReady(env,user));
  if(method==='POST'&&path==='/api/discoveries/prepare')return json(await prepareReady(env,user));
  if(method==='POST'&&path==='/api/auth/logout'){

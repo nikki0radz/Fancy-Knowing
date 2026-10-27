@@ -7,7 +7,7 @@ export async function finishGroup(env,game,player){
  // A database claim and all side effects execute atomically; a replay cannot resurface a read alert.
  commands.push(env.DB.prepare('UPDATE quiz_participants SET finalized_at=? WHERE id=? AND finalized_at IS NULL').bind(now,stored.id));
  if(stored.user_id&&stored.seat!=='host')commands.push(env.DB.prepare("INSERT INTO challenge_notifications(id,user_id,game_id,created_at,kind) VALUES (?,?,?,?,'result') ON CONFLICT(user_id,game_id) DO UPDATE SET kind='result',created_at=excluded.created_at,read_at=NULL WHERE challenge_notifications.kind='invite'").bind(crypto.randomUUID(),stored.user_id,game.id,now));
- if(stored.seat!=='host')commands.push(env.DB.prepare("INSERT INTO challenge_notifications(id,user_id,game_id,created_at,kind,message) VALUES (?,?,?,?,'score',?) ON CONFLICT(user_id,game_id) DO UPDATE SET kind='score',message=excluded.message,created_at=excluded.created_at,read_at=NULL WHERE EXISTS(SELECT 1 FROM quiz_participants WHERE id=? AND finalized_at=?)").bind(crypto.randomUUID(),game.creator_id,game.id,now,stored.name+' finished your quiz',stored.id,now));
+ if(stored.seat!=='host')commands.push(env.DB.prepare("INSERT INTO challenge_notifications(id,user_id,game_id,created_at,kind,message) VALUES (?,?,?,?,'score',?) ON CONFLICT(user_id,game_id) DO UPDATE SET kind='score',message=excluded.message,created_at=excluded.created_at,read_at=NULL WHERE EXISTS(SELECT 1 FROM quiz_participants WHERE id=? AND finalized_at=?)").bind(crypto.randomUUID(),game.creator_id,game.id,now,stored.name+' just completed your challenge',stored.id,now));
  await env.DB.batch(commands);
 }
 export async function validateFriendIds(env,user,ids){
