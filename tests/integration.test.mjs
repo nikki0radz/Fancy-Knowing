@@ -474,9 +474,9 @@ test('quiz limits count successful creations, refund failures, and preserve repl
  const result=await call('/games',{cookie,method:'POST',body:input});assert.equal(result.status,200,JSON.stringify(result.data));assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,1);
  await db.prepare('UPDATE budgets SET count=30 WHERE key=?').bind(key).run();
  assert.equal((await call('/games',{cookie,method:'POST',body:input})).data.game.id,result.data.game.id);
- const limited=await call('/games',{cookie,method:'POST',body:{...input,requestId:crypto.randomUUID()}});assert.equal(limited.status,429);assert.match(limited.data.error,/30 quizzes today/);
+ const limited=await call('/games',{cookie,method:'POST',body:{...input,requestId:crypto.randomUUID()}});assert.equal(limited.status,429);assert.match(limited.data.error,/out of quizzes for today/);const allowance=await call('/games/quota',{cookie});assert.equal(allowance.data.remaining,0);assert.equal(allowance.data.limit,30);assert.equal((await call('/games/quota')).status,401);
  assert.equal((await call('/games/'+result.data.game.id+'/share',{cookie,method:'POST',body:{}})).status,200);
  await db.prepare('UPDATE budgets SET expires_at=0 WHERE key=?').bind(key).run();
  assert.equal((await call('/games',{cookie,method:'POST',body:{...input,requestId:crypto.randomUUID()}})).status,200);
- assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,1);
+ assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,1);assert.equal((await call('/games/quota',{cookie})).data.remaining,29);
 });

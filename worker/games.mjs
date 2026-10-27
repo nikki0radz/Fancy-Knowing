@@ -75,6 +75,7 @@ export async function gamesApi(request,env,user,body){
  }
  if(path.startsWith('/api/challenges/'))fail('This challenge could not be found.',404);
  if(!user)fail('Sign in first.',401);
+ if(method==='GET'&&path==='/api/games/quota'){const row=await env.DB.prepare('SELECT count,expires_at FROM budgets WHERE key=?').bind(`completed-games:${user.id}:${localDay()}`).first(),used=row&&row.expires_at>Date.now()?row.count:0;return json({limit:30,used,remaining:Math.max(0,30-used),day:localDay()},200,{'Cache-Control':'no-store'})}
  if(method==='GET'&&path==='/api/notifications'){
   const rows=await env.DB.prepare('SELECT n.id,n.game_id,n.created_at,n.read_at,n.kind,n.message,g.topic FROM challenge_notifications n JOIN trivia_games g ON g.id=n.game_id WHERE n.user_id=? ORDER BY n.created_at DESC LIMIT 100').bind(user.id).all();
   return json({notifications:rows.results.map(n=>({id:n.id,gameId:n.game_id,type:n.kind==='invite'?'challenge_invite':'challenge_result',title:n.kind==='invite'?'You have a new challenge':n.kind==='score'?(n.message||'A quiz score is ready'):'Your challenge result is ready',topic:n.topic,createdAt:n.created_at,read:!!n.read_at})),unread:rows.results.filter(n=>!n.read_at).length});
@@ -94,7 +95,7 @@ export async function gamesApi(request,env,user,body){
    let invitee=null;if(input.friendId!==undefined){if(input.kind!=='challenge'||typeof input.friendId!=='string')fail('Choose a friend for this challenge.');const [low,high]=[user.id,input.friendId].sort();const friend=await env.DB.prepare('SELECT user_low FROM friendships WHERE user_low=? AND user_high=? AND accepted_at IS NOT NULL').bind(low,high).first();if(!friend)fail('Add and accept this friend first.',403);invitee=input.friendId}
    const friendIds=input.friendIds|| (invitee?[invitee]:[]);await validateFriendIds(env,user,friendIds);const group=input.kind==='challenge';
    await budget(env,`quiz-preparation:${user.id}:${Math.floor(Date.now()/3600000)}`,30,Date.now()+2*3600000,'You’ve started 30 quiz preparations this hour. Please try again next hour.');
-   await budget(env,quotaKey,30,Date.now()+2*DAY,'You’ve created 30 quizzes today. You can still play and share existing quizzes, or create more tomorrow.');reserved=true;
+   await budget(env,quotaKey,30,Date.now()+2*DAY,'Uh oh, you’re out of quizzes for today. Come again tomorrow! You can still play and share existing quizzes.');reserved=true;
    const count=input.count,answerCount=JSON.parse(user.settings).answerCount||4,{questions,vectors}=await triviaPack(env,user,topic,input.difficulty,count,answerCount),id=crypto.randomUUID(),now=Date.now(),token=input.kind==='challenge'?randomToken():null;
    const commands=[env.DB.prepare('INSERT INTO trivia_games(id,creator_id,request_id,kind,invite_token,topic,difficulty,question_count,created_at,invitee_id,group_mode,timer_seconds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,user.id,input.requestId,input.kind,token,topic,input.difficulty,count,now,null,group?1:0,JSON.parse(user.settings).timerSeconds||0),env.DB.prepare(`INSERT INTO ${group?'quiz_participants':'trivia_players'}(id,game_id,seat,user_id,name,joined_at) VALUES (?,?,'host',?,?,?)`).bind(crypto.randomUUID(),id,user.id,JSON.parse(user.profile||'{}').name||'You',now)];
    for(let index=0;index<questions.length;index++){
