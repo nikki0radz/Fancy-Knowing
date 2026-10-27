@@ -34,5 +34,14 @@ export async function loadMemory(env,userId){
  return records;
 }
 export function nearQuestions(q,vector,memory){return memory.map(old=>({old,score:cosine(vector,old.vector)})).sort((a,b)=>b.score-a.score).slice(0,16)}
-export function repeatedFact(q,memory){return memory.some(old=>normalize(old.q)===normalize(q.q)||normalize(old.concept)===normalize(q.concept))}
+const factStop=new Set('a an the is are was were what which who where when how of in on to for and or does do did has have can shark sharks true false'.split(' '));
+function factTokens(text){return new Set(normalize(text||'').split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>2&&!factStop.has(w)))}
+function overlap(a,b){let shared=0;for(const word of a)if(b.has(word))shared++;return shared/Math.max(1,Math.min(a.size,b.size))}
+export function repeatedFact(q,memory){return memory.some(old=>{
+ if(normalize(old.q)===normalize(q.q)||(q.concept&&old.concept&&normalize(old.concept)===normalize(q.concept)))return true;
+ const concept=factTokens(q.concept),prior=factTokens(old.concept),answer=normalize(q.options?.[q.correct]||''),oldAnswer=normalize(old.options?.[old.correct]||'');
+ const numbers=text=>(String(text||'').match(/\d+(?:[.-]\d+)*/g)||[]).join('|');
+ if(numbers(q.concept+' '+q.q)!==numbers(old.concept+' '+old.q))return false;
+ return concept.size>=3&&prior.size>=3&&overlap(concept,prior)>=.8 || !['true','false'].includes(answer)&&answer.length>3&&answer===oldAnswer&&overlap(factTokens(q.q),factTokens(old.q))>=.75;
+})}
 export function briefMemory(q){return {question:q.q,answer:q.options[q.correct],concept:q.concept,subtopic:q.subtopic||q.topic}}

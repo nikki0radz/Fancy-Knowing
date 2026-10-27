@@ -109,3 +109,5 @@ Settings → Notifications connects a browser to encrypted Web Push and lets eac
 `QUIZ_LIMITS_ENABLED` remains `false` during testing. `QUIZ_DAILY_LIMIT` is set to `5`, ready for re-enabling the cap later. The results page does not offer automatic quiz regeneration.
 
 Web Push uses the pinned, vendored `@block65/webcrypto-web-push` 2.0.0 and `uint8array-extras` 1.6.0. Both MIT licences are retained in `licenses/`.
+
+Recent interaction updates: quizzes start on General knowledge, with topic search behind Change. Guest links have inline copy/share controls. Home activity lists unread updates only and removes an update when opened; the notification inbox retains read history. Saving a question offers an editable 1–365 day refresher or Just save it. Refresher opt-outs persist through later answers. Quiz generation now compares semantic similarity across candidates within the same batch as well as prior account history, and independently reviews batch duplicates.

@@ -119,12 +119,12 @@ async function api(request,env,ctx){
   let count=settings.dailyAmount||1,row;
   if(day===today){if(slot>=count)fail('This question is outside your daily amount.',404);row=await assignDiscovery(env,user,day,slot)}
   else{row=await assignedQuestion(env,user.id,day,slot);if(!row)fail('That discovery is not available.',404);const max=await env.DB.prepare('SELECT MAX(slot) AS slot FROM daily_assignments WHERE user_id=? AND day=?').bind(user.id,day).first();count=max.slot+1}
-  const attempt=await latest(env,user.id,row.id),saved=await env.DB.prepare('SELECT due_at FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();
-  return json({question:reveal(row,attempt,false,settings.units),saved:saved?{due:saved.due_at}:null,day,slot,count,slots:await daySlots(env,user.id,day,count)});
+  const attempt=await latest(env,user.id,row.id),saved=await env.DB.prepare('SELECT due_at,review_enabled FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();
+  return json({question:reveal(row,attempt,false,settings.units),saved:saved?{due:saved.review_enabled?saved.due_at:null}:null,day,slot,count,slots:await daySlots(env,user.id,day,count)});
  }
  if(method==='GET'&&path==='/api/library'){
-  const rows=await env.DB.prepare('SELECT q.*,s.due_at,s.saved_at,(SELECT COUNT(*) FROM chats c WHERE c.user_id=? AND c.question_id=q.id) AS chat_count FROM questions q LEFT JOIN saved s ON s.question_id=q.id AND s.user_id=? WHERE s.user_id=? OR EXISTS(SELECT 1 FROM attempts a WHERE a.question_id=q.id AND a.user_id=?) ORDER BY q.created_at DESC LIMIT 300').bind(user.id,user.id,user.id,user.id).all();
-  const questions=[];for(const row of rows.results)questions.push({...reveal(row,await latest(env,user.id,row.id),false,JSON.parse(user.settings).units),chatCount:row.chat_count,saved:row.due_at?{due:row.due_at}:null});
+  const rows=await env.DB.prepare('SELECT q.*,s.due_at,s.saved_at,s.review_enabled,(SELECT COUNT(*) FROM chats c WHERE c.user_id=? AND c.question_id=q.id) AS chat_count FROM questions q LEFT JOIN saved s ON s.question_id=q.id AND s.user_id=? WHERE s.user_id=? OR EXISTS(SELECT 1 FROM attempts a WHERE a.question_id=q.id AND a.user_id=?) ORDER BY q.created_at DESC LIMIT 300').bind(user.id,user.id,user.id,user.id).all();
+  const questions=[];for(const row of rows.results)questions.push({...reveal(row,await latest(env,user.id,row.id),false,JSON.parse(user.settings).units),chatCount:row.chat_count,saved:row.due_at?{due:row.review_enabled?row.due_at:null}:null});
   return json({questions});
  }
  const match=path.match(/^\/api\/questions\/([^/]+)(?:\/(answer|save|chat|share))?$/);
@@ -145,14 +145,15 @@ async function api(request,env,ctx){
    await budget(env,`attempts:${user.id}:${localDay()}`,150,now+2*DAY);
    await env.DB.batch([
     env.DB.prepare('INSERT INTO attempts(id,user_id,question_id,choice,typed,correct,created_at) VALUES (?,?,?,?,?,?,?)').bind(input.attemptId,user.id,row.id,result.choice,result.typed,result.correct?1:0,now),
-    env.DB.prepare('UPDATE saved SET due_at=? WHERE user_id=? AND question_id=?').bind(now+(result.correct?14:7)*DAY,user.id,row.id)
+    env.DB.prepare('UPDATE saved SET due_at=? WHERE user_id=? AND question_id=? AND review_enabled=1').bind(now+(result.correct?14:7)*DAY,user.id,row.id)
    ]);
    return json({question:reveal(row,{id:input.attemptId,choice:result.choice,typed:result.typed,correct:result.correct?1:0,created_at:now},false,JSON.parse(user.settings).units)});
   }
   if(method==='POST'&&action==='save'){
    const input=await body(request);if(typeof input.saved!=='boolean')fail('Invalid save request.');
-   if(input.saved){await env.DB.prepare('INSERT INTO saved(user_id,question_id,due_at,saved_at) VALUES (?,?,?,?) ON CONFLICT(user_id,question_id) DO NOTHING').bind(user.id,row.id,Date.now()+7*DAY,Date.now()).run()}else await env.DB.prepare('DELETE FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).run();
-   const saved=await env.DB.prepare('SELECT due_at FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();return json({saved:saved?{due:saved.due_at}:null});
+   if(input.reviewDays!==undefined&&input.reviewDays!==null&&(!Number.isInteger(input.reviewDays)||input.reviewDays<1||input.reviewDays>365))fail('Choose between 1 and 365 days.');
+   if(input.saved){await env.DB.prepare('INSERT INTO saved(user_id,question_id,due_at,saved_at,review_enabled) VALUES (?,?,?,?,?) ON CONFLICT(user_id,question_id) DO UPDATE SET due_at=excluded.due_at,review_enabled=excluded.review_enabled').bind(user.id,row.id,Date.now()+(input.reviewDays??7)*DAY,Date.now(),input.reviewDays===null?0:1).run()}else await env.DB.prepare('DELETE FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).run();
+   const saved=await env.DB.prepare('SELECT due_at,review_enabled FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();return json({saved:saved?{due:saved.review_enabled?saved.due_at:null}:null});
   }
   if(action==='chat'){
    if(!await latest(env,user.id,row.id))fail('Take a guess before diving deeper.',403);

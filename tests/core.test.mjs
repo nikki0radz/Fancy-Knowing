@@ -139,3 +139,18 @@ test('phone notification preferences validate each event and push endpoints reje
  const {validPushEndpoint}=await import('../worker/push.mjs');assert.ok(validPushEndpoint('https://fcm.googleapis.com/wp/abc'));for(const endpoint of ['http://fcm.googleapis.com/a','https://localhost/push','https://fcm.googleapis.com.evil.test/a','https://fcm.googleapis.com:8443/a','https://name@fcm.googleapis.com/a'])assert.equal(validPushEndpoint(endpoint),false);
  assert.deepEqual(validateSettings({phoneAlerts:true,pushEvents:{friendRequests:false,friendAccepted:true,quizResults:false}}),{phoneAlerts:true,pushEvents:{friendRequests:false,friendAccepted:true,quizResults:false}});assert.throws(()=>validateSettings({pushEvents:{madeUp:true}}));assert.throws(()=>validateSettings({pushEvents:{quizResults:1}}));
 });
+
+test('fact memory rejects paraphrased facts without blocking distinct facts about the same species',async()=>{
+ const {repeatedFact}=await import('../worker/memory.mjs');
+ const q={q:'Which shark is the largest living fish?',concept:'whale shark largest living fish',options:['Whale shark','Great white'],correct:0};
+ assert.equal(repeatedFact({...q,q:'What is the largest fish alive?',concept:'largest living fish whale shark'},[q]),true);
+ assert.equal(repeatedFact({...q,q:'What does a whale shark mainly eat?',concept:'whale shark diet plankton',options:['Plankton','Seals']},[q]),false);
+ assert.equal(repeatedFact({...q,q:'True or false: whale sharks filter-feed.',concept:'whale shark filter feeding',options:['True','False']},[{...q,q:'True or false: hammerheads have wide heads.',concept:'hammerhead wide head',options:['True','False']}]),false);
+});
+
+test('quiz batches compare semantic vectors between peers, including reversed and reworded questions',async()=>{
+ const {freshBatch}=await import('../worker/trivia.mjs');
+ const make=(q,concept)=>({q,concept,options:['Answer','Other'],correct:0});
+ const a=make('Which fish is biggest?','largest fish identity'),b=make('Whale sharks hold which size record?','ocean creature size record'),c=make('How do hammerheads sense prey?','hammerhead electrical sensing');
+ assert.deepEqual(freshBatch([a,b,c],[[1,0],[.99,.01],[0,1]]),[a,c]);
+});
