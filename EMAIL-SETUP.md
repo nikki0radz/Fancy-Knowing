@@ -51,7 +51,7 @@ New accounts use email immediately. Sign-up does not force an email-verification
 ## Behaviour and verification
 
 - Tokens have 256 bits of randomness; only SHA-256 token hashes are stored in D1.
-- Reset and email-change links expire after 20 minutes and are single use. Merely opening a link does not consume it; the app submits it when confirming/resetting.
+- Reset and email-change links expire after 20 minutes and are single use. Reset links are consumed when a new password is submitted. Email-change links confirm the new address when opened in the app.
 - A successful password reset invalidates all other outstanding email links and signs out all existing sessions.
 - Reset requests return the same message whether the email exists, preventing account enumeration. Resend failures are logged by status only; unused tokens are removed. If no mail arrives, check spam and the Resend send logs.
 - Requests have per-address and per-IP limits. Tokens, passwords and email bodies are not printed in application logs or returned by the API.
