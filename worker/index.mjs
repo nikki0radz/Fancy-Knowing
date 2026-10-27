@@ -1,3 +1,4 @@
+import {pushApi,deliverPushOutbox} from './push.mjs';
 import { fail, hash, DAY, randomToken, validateSettings, validateNotificationWindow, notificationTimes, localDay, grade } from './core.mjs';
 import { budget, chatReply } from './ai.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
@@ -22,7 +23,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
@@ -62,6 +63,7 @@ async function api(request,env,ctx){
  if(path.startsWith('/api/shared/'))fail('This shared question could not be found.',404);
  if(path.startsWith('/api/challenges/')){let visitor=null;try{visitor=await userFor(request,env)}catch(e){if(e.status!==401)throw e}return gamesApi(request,env,visitor,body)}
  const user=await userFor(request,env);
+ if(path.startsWith('/api/push/'))return pushApi(request,env,user,body);
  if(path==='/api/friends'||path.startsWith('/api/friends/'))return friendsApi(request,env,user,body);
  if(path==='/api/games'||path.startsWith('/api/games/')||path==='/api/notifications'||path.startsWith('/api/notifications/'))return gamesApi(request,env,user,body);
  if(method==='GET'&&path==='/api/home'){
@@ -103,7 +105,7 @@ async function api(request,env,ctx){
   await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatar,user.id).run();return json({avatar});
  }
  if(method==='PUT'&&path==='/api/settings'){
-  const settings=validateNotificationWindow({...JSON.parse(user.settings),...validateSettings(await body(request))});await env.DB.prepare('UPDATE users SET settings=? WHERE id=?').bind(JSON.stringify(settings),user.id).run();return json({settings});
+  const previous=JSON.parse(user.settings),patch=validateSettings(await body(request)),settings=validateNotificationWindow({...previous,...patch,...(patch.pushEvents?{pushEvents:{...previous.pushEvents,...patch.pushEvents}}:{})});await env.DB.prepare('UPDATE users SET settings=? WHERE id=?').bind(JSON.stringify(settings),user.id).run();return json({settings});
  }
  if(method==='GET'&&path==='/api/notification-schedule'){
   const settings=JSON.parse(user.settings),timezone=settings.timezone||'Europe/London',day=localDay(timezone);
@@ -173,7 +175,7 @@ async function api(request,env,ctx){
 export default {
  async fetch(request,env,ctx){
   try{
-   if(new URL(request.url).pathname.startsWith('/api/'))return await api(request,env,ctx);
+   if(new URL(request.url).pathname.startsWith('/api/')){const response=await api(request,env,ctx);if(request.method!=='GET'&&response.ok&&ctx?.waitUntil)ctx.waitUntil(deliverPushOutbox(env).catch(()=>console.error('Push delivery deferred')));return response}
    if(!env.ASSETS)return new Response('Fancy Knowing assets are not built yet.',{status:503});
    const response=await env.ASSETS.fetch(request),headers=new Headers(response.headers);
    headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');headers.set('X-Frame-Options','DENY');
@@ -184,6 +186,7 @@ export default {
  async scheduled(event,env,ctx){
   ctx.waitUntil((async()=>{
    if(!env.DB)return;
+   await deliverPushOutbox(env);
    await deliverPendingWelcomes(env);
    if(!env.OPENAI_API_KEY)return;
    await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM email_tokens WHERE expires_at<? OR used_at IS NOT NULL').bind(Date.now())]);

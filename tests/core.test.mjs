@@ -129,3 +129,13 @@ test('avatar crop stays covered and zoom preserves the chosen focal point',async
  const reset=crop.zoomAt(zoomed,.1);assert.equal(reset.zoom,1);assert.equal(reset.x,0);assert.equal(reset.y,0);
  for(const zoom of [1,1.3,2,4,10]){const state=crop.zoomAt({...wide,x:200,y:50},zoom),scale=320/Math.min(state.width,state.height)*state.zoom;assert.ok(Math.abs(state.x)<=(state.width*scale-320)/2);assert.ok(Math.abs(state.y)<=(state.height*scale-320)/2);assert.ok(state.zoom<=4)}
 });
+
+test('leaderboards rank score first, then time, and keep exact or unrecorded ties honest',async()=>{
+ const {rankPlayers,resultNotice}=await import('../worker/ranking.mjs');const rows=[{id:'slow',name:'Sam',score:8,elapsed_ms:50000,completed_at:1},{id:'fast',name:'Nikki',score:8,elapsed_ms:30000,completed_at:1},{id:'low',name:'Mum',score:7,elapsed_ms:10000,completed_at:1},{id:'playing',score:null}];
+ const ranked=rankPlayers(rows);assert.deepEqual(ranked.map(p=>p.id),['fast','slow','low']);assert.deepEqual(ranked.map(p=>p.rank),[1,2,3]);assert.match(resultNotice(rows[1],rows[0],10),/beat you.*faster time/);assert.match(resultNotice(rows[0],rows[1],10),/still ahead/);
+ assert.deepEqual(rankPlayers([rows[0],{...rows[1],elapsed_ms:50000}]).map(p=>p.rank),[1,1]);assert.deepEqual(rankPlayers([rows[0],{...rows[1],elapsed_ms:null}]).map(p=>p.rank),[1,1]);
+});
+test('phone notification preferences validate each event and push endpoints reject arbitrary hosts',async()=>{
+ const {validPushEndpoint}=await import('../worker/push.mjs');assert.ok(validPushEndpoint('https://fcm.googleapis.com/wp/abc'));for(const endpoint of ['http://fcm.googleapis.com/a','https://localhost/push','https://fcm.googleapis.com.evil.test/a','https://fcm.googleapis.com:8443/a','https://name@fcm.googleapis.com/a'])assert.equal(validPushEndpoint(endpoint),false);
+ assert.deepEqual(validateSettings({phoneAlerts:true,pushEvents:{friendRequests:false,friendAccepted:true,quizResults:false}}),{phoneAlerts:true,pushEvents:{friendRequests:false,friendAccepted:true,quizResults:false}});assert.throws(()=>validateSettings({pushEvents:{madeUp:true}}));assert.throws(()=>validateSettings({pushEvents:{quizResults:1}}));
+});

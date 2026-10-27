@@ -98,3 +98,14 @@ Completed challenges create persistent per-account notifications and a bell badg
 - New friend quizzes are group lobbies, with up to 100 participants. The host can select several accepted friends or copy a guest link; guests enter a name and play without accounts. A solo quiz can be promoted to a shared lobby without losing answers or scores. Participants see their result after finishing, and the host sees completed scores as they arrive. Guests cannot use account saving or AI chat, and their result reaction is local. Older two-player challenges retain their original reveal rules.
 - The host can close or reopen entries. Closing prevents new joins while allowing existing players to finish; final standings appear when entries are closed and all joined players have finished. Profile and invitation APIs remain account-scoped. Guest cookies reconnect only their own browser to its participation.
 - Deploy migrations 0011 and 0012 before publishing the Worker; `npm run deploy` applies them automatically. The cron now runs every five minutes and rotates preparation across accounts.
+
+
+### Challenge rankings and phone alerts
+
+Shared quizzes rank completed entries by score, then the sum of server-recorded answer times. Older entries without recorded timing stay tied on score. A crown is provisional while a quiz is open; a trophy is awarded after the host closes it. Closing stops joins and answers; reopening preserves saved answers and excludes the closed interval from the active question clock.
+
+Settings → Notifications connects a browser to encrypted Web Push and lets each account switch friend requests, accepted requests, challenge invitations and quiz results on or off. In-app notifications remain available regardless of phone preferences. Use “Send a test notification” on the phone to verify browser/OS delivery. VAPID keys are generated once into server-only D1 storage; only the public key is returned to authenticated browsers. No sender key setup is required. Explicit sign-out disconnects the current device.
+
+`QUIZ_LIMITS_ENABLED` remains `false` during testing. `QUIZ_DAILY_LIMIT` is set to `5`, ready for re-enabling the cap later. The results page does not offer automatic quiz regeneration.
+
+Web Push uses the pinned, vendored `@block65/webcrypto-web-push` 2.0.0 and `uint8array-extras` 1.6.0. Both MIT licences are retained in `licenses/`.
