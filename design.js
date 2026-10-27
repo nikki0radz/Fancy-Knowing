@@ -14,7 +14,7 @@ window.FancyDesign=(()=>{
   const vars={'--bg':c.background,'--text':text,'--muted':mix(c.background,text,.68),'--panel':mix(c.background,text,.055),'--card':mix(c.background,text,.09),'--input':mix(c.background,text,.025),'--line':light?'#16182128':'#ffffff22','--accent':c.accent,'--pink':readable(c.accent,c.background),'--accent-ink':ink(c.accent),'--mint':readable('#65bd94',c.background),'--font-scale':Math.max(.75,Math.min(1.6,(settings.fontSize||100)/100)),'--app-font':fonts[settings.font]?.family||fonts.clean.family};
   for(const [key,value]of Object.entries(vars))root.style.setProperty(key,value);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content',c.background);
-  document.querySelectorAll('[data-theme-slider]').forEach(b=>b.setAttribute('aria-checked',mode==='light'));
+  document.querySelectorAll('[data-theme-slider]').forEach(b=>{b.setAttribute('aria-checked',mode==='dark');b.setAttribute('aria-label',mode==='dark'?'Dark mode on. Switch to light mode':'Light mode on. Switch to dark mode')});
   try{localStorage.setItem('fancy-knowing-appearance',JSON.stringify(settings))}catch{}
  }
  function hsvHex(h,s,v){s/=100;v/=100;const c=v*s,x=c*(1-Math.abs(h/60%2-1)),m=v-c;return '#'+(h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x]).map(n=>Math.round((n+m)*255).toString(16).padStart(2,'0')).join('')}
