@@ -30,7 +30,7 @@ export async function inviteFriends(env,game,user,ids){
 export async function shareRoom(env,game,user){
  if(game.creator_id!==user.id)fail('Only the host can share this quiz.',403);
  if(game.group_mode)return game;
- const now=Date.now(),token=game.invite_token||randomToken(),columns='id,game_id,seat,user_id,guest_hash,name,joined_at,completed_at,score,verdict,question_started_at,elapsed_ms';
+ const now=Date.now(),token=game.invite_token||randomToken(),columns='id,game_id,seat,user_id,guest_hash,name,joined_at,completed_at,score,verdict,question_started_at,elapsed_ms,started_at';
  await env.DB.batch([
   env.DB.prepare(`INSERT INTO quiz_participants(${columns},finalized_at) SELECT ${columns},completed_at FROM trivia_players WHERE game_id=?`).bind(game.id),
   env.DB.prepare('INSERT INTO quiz_responses(player_id,position,choice,correct) SELECT a.player_id,a.position,a.choice,a.correct FROM trivia_answers a JOIN trivia_players p ON p.id=a.player_id WHERE p.game_id=?').bind(game.id),

@@ -1,0 +1,4 @@
+ALTER TABLE trivia_games ADD COLUMN lobby_mode INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trivia_games ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trivia_players ADD COLUMN started_at INTEGER;
+ALTER TABLE quiz_participants ADD COLUMN started_at INTEGER;

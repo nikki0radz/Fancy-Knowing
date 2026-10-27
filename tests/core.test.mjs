@@ -164,3 +164,10 @@ test('Candy Cloud replaces the old default palette while keeping custom colours'
  assert.equal(colours({accentLight:'#123456',backgroundLight:'#abcdef'},'light').accent,'#123456');
  assert.equal(colours({accentLight:'#123456',backgroundLight:'#abcdef'},'light').background,'#abcdef');
 });
+
+test('handmade quizzes validate authored answers and retain their key after shuffling',async()=>{
+ const {manualQuiz}=await import('../worker/quiz.mjs');
+ const q={q:'What is my favourite colour?',options:['Purple','Green','Blue'],correct:0,explanation:'Purple has always been my favourite.'};
+ const pack=manualQuiz({topic:'How well do you know me?',questions:[q]});assert.equal(pack.questions[0].options[pack.questions[0].correct],'Purple');assert.equal(pack.questions[0].origin,'manual');assert.equal(pack.vectors.length,0);
+ for(const bad of [{...q,correct:9},{...q,options:['Purple','purple']},{...q,options:['Purple','']},{...q,format:'unknown'}])assert.throws(()=>manualQuiz({topic:'My quiz',questions:[bad]}));
+});

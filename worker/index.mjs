@@ -17,7 +17,7 @@ async function body(request,limit=16000) {
 }
 async function questionFor(env,id){if(typeof id!=='string'||id.length>80)fail('Invalid question.');const row=await env.DB.prepare('SELECT * FROM questions WHERE id=?').bind(id).first();if(!row)fail('Question not found.',404);return row}
 async function latest(env,userId,questionId){return env.DB.prepare('SELECT * FROM attempts WHERE user_id=? AND question_id=? ORDER BY created_at DESC,id DESC LIMIT 1').bind(userId,questionId).first()}
-function reveal(row,attempt=null,blind=false,units='metric'){const q=displayQuestion(JSON.parse(row.data),units);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,format:q.format||'multiple_choice',q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
+function reveal(row,attempt=null,blind=false,units='metric'){const q=displayQuestion(JSON.parse(row.data),units);return {id:row.id,day:row.day.slice(0,10),topic:q.topic,...(q.origin==='manual'?{origin:'manual'}:{}),format:q.format||'multiple_choice',q:q.q,options:q.options,...(attempt&&!blind?{correct:q.correct,explanation:q.explanation,source:q.source,follow:q.follow,attempt:{id:attempt.id,choice:attempt.choice,typed:attempt.typed,correct:!!attempt.correct,at:attempt.created_at}}:{})}}
 async function databaseStatus(env){
  if(!env.DB)return {databaseReady:false,databaseIssue:'binding_missing'};
  try{
@@ -52,7 +52,7 @@ async function api(request,env,ctx){
  if(guest){
   const row=await env.DB.prepare('SELECT q.* FROM shared_questions s JOIN questions q ON q.id=s.question_id WHERE s.token=?').bind(guest[1]).first();
   if(!row)fail('This shared question could not be found.',404);
-  const q=JSON.parse(row.data),question={topic:q.topic,format:q.format||'multiple_choice',q:q.q,options:q.options};
+  const q=JSON.parse(row.data),question={topic:q.topic,...(q.origin==='manual'?{origin:'manual'}:{}),format:q.format||'multiple_choice',q:q.q,options:q.options};
   if(method==='GET'&&!guest[2])return json({question},200,{'Cache-Control':'no-store'});
   if(method==='POST'&&guest[2]==='answer'){
    const result=grade(q,await body(request));
@@ -86,7 +86,7 @@ async function api(request,env,ctx){
  if(method==='GET'&&path==='/api/me')return json({user:publicUser(user)});
  if(method==='POST'&&path==='/api/account/email')return requestEmailChange(request,env,user,await body(request));
  if(method==='GET'&&path==='/api/quiz-topics'){
-  const uses=await env.DB.prepare('SELECT topic,COUNT(*) AS uses FROM trivia_games WHERE creator_id=? GROUP BY topic ORDER BY uses DESC').bind(user.id).all();const profile=JSON.parse(user.profile||'{}');const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=?').bind(user.id).all();
+  const uses=await env.DB.prepare('SELECT topic,COUNT(*) AS uses FROM trivia_games WHERE creator_id=? AND manual=0 GROUP BY topic ORDER BY uses DESC').bind(user.id).all();const profile=JSON.parse(user.profile||'{}');const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=?').bind(user.id).all();
   const scores=new Map(uses.results.map(r=>[r.topic,r.uses]));const all=[...new Set(['General knowledge',...uses.results.map(r=>r.topic==='Mixed topics'?'General knowledge':r.topic),...(profile.interests||[]),...SUBJECTS,...custom.results.map(r=>r.topic)])];const rest=all.filter(t=>t!=='General knowledge').sort((a,b)=>(scores.get(b)||0)-(scores.get(a)||0));return json({topics:['General knowledge',...rest]});
  }
  if(method==='GET'&&path==='/api/topics'){const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? ORDER BY created_at').bind(user.id).all();return json({subjects:SUBJECTS,custom:custom.results.map(r=>r.topic)})}
@@ -130,6 +130,7 @@ async function api(request,env,ctx){
  const match=path.match(/^\/api\/questions\/([^/]+)(?:\/(answer|save|chat|share))?$/);
  if(match){
   const row=await questionFor(env,match[1]),q=JSON.parse(row.data),action=match[2];
+  if(q.origin==='manual'&&!await env.DB.prepare('SELECT g.game_id FROM trivia_game_questions g JOIN trivia_games t ON t.id=g.game_id WHERE g.question_id=? AND (t.creator_id=? OR EXISTS(SELECT 1 FROM quiz_participants p WHERE p.game_id=t.id AND p.user_id=?) OR EXISTS(SELECT 1 FROM trivia_players p WHERE p.game_id=t.id AND p.user_id=?))').bind(row.id,user.id,user.id,user.id).first())fail('This is a private handmade question.',403);
   if(method==='GET'&&!action)return json({question:reveal(row,await latest(env,user.id,row.id),url.searchParams.get('blind')==='1',JSON.parse(user.settings).units)});
   if(method==='POST'&&action==='share'){
    if(!await latest(env,user.id,row.id))fail('Take a guess before sharing this question.',403);
@@ -156,6 +157,7 @@ async function api(request,env,ctx){
    const saved=await env.DB.prepare('SELECT due_at,review_enabled FROM saved WHERE user_id=? AND question_id=?').bind(user.id,row.id).first();return json({saved:saved?{due:saved.review_enabled?saved.due_at:null}:null});
   }
   if(action==='chat'){
+   if(q.origin==='manual')fail('The creator supplies the facts for handmade quizzes.',403);
    if(!await latest(env,user.id,row.id))fail('Take a guess before diving deeper.',403);
    if(method==='GET'){const messages=await env.DB.prepare('SELECT role,content FROM (SELECT id,role,content FROM chats WHERE user_id=? AND question_id=? ORDER BY id DESC LIMIT 100) ORDER BY id').bind(user.id,row.id).all();return json({messages:messages.results})}
    if(method==='POST'){

@@ -36,7 +36,7 @@ export async function dailyQuestion(env,day,interests=[],answerCount=4,includeEv
   const check=await env.DB.prepare('SELECT * FROM questions WHERE day=?').bind(key).first();if(check)return check;
   await budget(env,`generation:${localDay()}`,200,now+2*DAY);
   const memory=context.memory|| (context.userId?await loadMemory(env,context.userId):[]);
-  const recent=await env.DB.prepare('SELECT data FROM questions ORDER BY created_at DESC LIMIT 80').all();
+  const recent=await env.DB.prepare("SELECT data FROM questions WHERE json_extract(data,'$.origin') IS NOT 'manual' ORDER BY created_at DESC LIMIT 80").all();
   const exclude=[...memory.slice(0,40).map(briefMemory),...recent.results.map(r=>briefMemory(JSON.parse(r.data)))];
   const rejected=[];
   for(let attempt=0;attempt<3;attempt++){
