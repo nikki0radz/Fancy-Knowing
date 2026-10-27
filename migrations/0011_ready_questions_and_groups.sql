@@ -1,0 +1,18 @@
+CREATE TABLE friend_username_aliases(alias TEXT PRIMARY KEY COLLATE NOCASE,user_id TEXT NOT NULL REFERENCES users(id));
+INSERT INTO friend_username_aliases(alias,user_id) SELECT friend_username,id FROM users WHERE friend_username IS NOT NULL;
+UPDATE users SET friend_username=json_extract('["Curious","Silent","Ghost","Lunar","Velvet","Sneaky","Cosmic","Misty","Electric","Dancing","Golden","Sleepy"]','$['||(abs(random())%12)||']')||json_extract('["Shark","Spider","Otter","Gecko","Panda","Fox","Robin","Dragon","Badger","Manta","Raven","Tiger"]','$['||(abs(random())%12)||']')||printf('%02d',rowid+10);
+DROP INDEX users_friend_username;
+CREATE UNIQUE INDEX users_friend_username ON users(friend_username COLLATE NOCASE);
+CREATE TABLE discovery_queue(user_id TEXT NOT NULL REFERENCES users(id),question_id TEXT NOT NULL REFERENCES questions(id),profile_key TEXT NOT NULL,created_at INTEGER NOT NULL,consumed_at INTEGER,PRIMARY KEY(user_id,question_id));
+CREATE INDEX discovery_queue_ready ON discovery_queue(user_id,profile_key,consumed_at,created_at);
+CREATE TABLE daily_ready(user_id TEXT NOT NULL REFERENCES users(id),day TEXT NOT NULL,slot INTEGER NOT NULL,profile_key TEXT NOT NULL,question_id TEXT NOT NULL REFERENCES questions(id),created_at INTEGER NOT NULL,PRIMARY KEY(user_id,day,slot,profile_key));
+CREATE TABLE discovery_prep_state(user_id TEXT PRIMARY KEY REFERENCES users(id),checked_at INTEGER NOT NULL);
+ALTER TABLE trivia_games ADD COLUMN group_mode INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trivia_games ADD COLUMN closed_at INTEGER;
+ALTER TABLE trivia_games ADD COLUMN timer_seconds INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE trivia_players ADD COLUMN question_started_at INTEGER;
+CREATE TABLE quiz_participants(id TEXT PRIMARY KEY,game_id TEXT NOT NULL REFERENCES trivia_games(id),seat TEXT NOT NULL CHECK(seat IN ('host','guest')),user_id TEXT REFERENCES users(id),guest_hash TEXT,name TEXT NOT NULL,joined_at INTEGER NOT NULL,completed_at INTEGER,score INTEGER,verdict TEXT,question_started_at INTEGER,CHECK((user_id IS NOT NULL AND guest_hash IS NULL) OR (user_id IS NULL AND guest_hash IS NOT NULL)),UNIQUE(game_id,user_id),UNIQUE(game_id,guest_hash));
+CREATE TABLE quiz_responses(player_id TEXT NOT NULL REFERENCES quiz_participants(id),position INTEGER NOT NULL,choice INTEGER NOT NULL,correct INTEGER NOT NULL,PRIMARY KEY(player_id,position));
+CREATE TABLE quiz_invitations(game_id TEXT NOT NULL REFERENCES trivia_games(id),user_id TEXT NOT NULL REFERENCES users(id),created_at INTEGER NOT NULL,PRIMARY KEY(game_id,user_id));
+ALTER TABLE quiz_participants ADD COLUMN finalized_at INTEGER;
+ALTER TABLE challenge_notifications ADD COLUMN message TEXT;

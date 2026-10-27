@@ -9,9 +9,9 @@ export async function friendsApi(request,env,user,body){
  }
  if(path==='/api/friends'&&method==='POST'){
   const input=await body(request),username=typeof input.username==='string'?input.username.trim().toLowerCase().replace(/^@/,''):'';
-  if(!/^[a-z0-9-]{8,60}$/.test(username))fail('Paste your friend’s username.');
+  if(!/^[a-z0-9-]{4,60}$/.test(username))fail('Paste your friend’s username.');
   await budget(env,`friends:${user.id}:${localDay()}`,40,Date.now()+2*DAY);
-  const other=await env.DB.prepare('SELECT id FROM users WHERE friend_username=?').bind(username).first();if(!other)fail('No account uses that username. Check it and try again.',404);if(other.id===user.id)fail('That is your username. Ask a friend for theirs.');
+  const other=await env.DB.prepare('SELECT id FROM users WHERE friend_username=? COLLATE NOCASE OR id IN (SELECT user_id FROM friend_username_aliases WHERE alias=?)').bind(username,username).first();if(!other)fail('No account uses that username. Check it and try again.',404);if(other.id===user.id)fail('That is your username. Ask a friend for theirs.');
   const [low,high]=[user.id,other.id].sort();await env.DB.prepare('INSERT INTO friendships(user_low,user_high,requested_by,created_at) VALUES (?,?,?,?) ON CONFLICT(user_low,user_high) DO NOTHING').bind(low,high,user.id,Date.now()).run();
   return json({ok:true});
  }

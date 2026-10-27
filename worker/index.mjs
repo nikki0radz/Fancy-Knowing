@@ -2,6 +2,7 @@ import { fail, hash, DAY, randomToken, validateSettings, validateNotificationWin
 import { budget, chatReply } from './ai.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
 import {assignDiscovery,assignedQuestion,daySlots} from './discoveries.mjs';
+import {readyCount,nextReady,prepareReady} from './ready.mjs';
 import {displayQuestion,formatUnits} from './quiz.mjs';
 import {friendsApi} from './friends.mjs';
 import {gamesApi} from './games.mjs';
@@ -21,7 +22,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
@@ -63,9 +64,14 @@ async function api(request,env,ctx){
  const user=await userFor(request,env);
  if(path==='/api/friends'||path.startsWith('/api/friends/'))return friendsApi(request,env,user,body);
  if(path==='/api/games'||path.startsWith('/api/games/')||path==='/api/notifications'||path.startsWith('/api/notifications/'))return gamesApi(request,env,user,body);
- if(method==='GET'&&path==='/api/home'){const settings=JSON.parse(user.settings),day=localDay(settings.timezone||'Europe/London');return json({day,count:settings.dailyAmount||1,slots:await daySlots(env,user.id,day,settings.dailyAmount||1)})}
+ if(method==='GET'&&path==='/api/home'){const settings=JSON.parse(user.settings),day=localDay(settings.timezone||'Europe/London');return json({day,readyCount:await readyCount(env,user),count:settings.dailyAmount||1,slots:await daySlots(env,user.id,day,settings.dailyAmount||1)})}
+ if(method==='POST'&&path==='/api/discoveries/next')return json(await nextReady(env,user));
+ if(method==='POST'&&path==='/api/discoveries/prepare')return json(await prepareReady(env,user));
  if(method==='POST'&&path==='/api/auth/logout'){
   await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(tokenFrom(request))).run();return json({ok:true},200,{'Set-Cookie':sessionCookie('',0)});
+ }
+ if(method==='GET'&&path==='/api/my-profile'){
+  const stats=await env.DB.prepare('SELECT COUNT(DISTINCT question_id) discoveries,COUNT(*) attempts,SUM(correct) correct FROM attempts WHERE user_id=?').bind(user.id).first(),saved=await env.DB.prepare('SELECT COUNT(*) n FROM saved WHERE user_id=?').bind(user.id).first(),games=await env.DB.prepare('SELECT COUNT(*) n FROM (SELECT id FROM trivia_players WHERE user_id=? AND completed_at IS NOT NULL UNION ALL SELECT id FROM quiz_participants WHERE user_id=? AND completed_at IS NOT NULL)').bind(user.id,user.id).first(),friends=await env.DB.prepare('SELECT COUNT(*) n FROM friendships WHERE (user_low=? OR user_high=?) AND accepted_at IS NOT NULL').bind(user.id,user.id).first();return json({user:publicUser(user),stats:{discoveries:stats.discoveries,accuracy:stats.attempts?Math.round(stats.correct/stats.attempts*100):0,saved:saved.n,quizzes:games.n,friends:friends.n}});
  }
  if(method==='GET'&&path==='/api/me')return json({user:publicUser(user)});
  if(method==='POST'&&path==='/api/account/email')return requestEmailChange(request,env,user,await body(request));
@@ -173,12 +179,8 @@ export default {
    await deliverPendingWelcomes(env);
    if(!env.OPENAI_API_KEY)return;
    await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM budgets WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM locks WHERE expires_at<?').bind(Date.now()),env.DB.prepare('DELETE FROM email_tokens WHERE expires_at<? OR used_at IS NOT NULL').bind(Date.now())]);
-   const users=await env.DB.prepare('SELECT * FROM users ORDER BY created_at LIMIT 20').all();let prepared=0;
-   for(const user of users.results){
-    const settings=JSON.parse(user.settings),day=localDay(settings.timezone||'Europe/London'),slots=await daySlots(env,user.id,day,settings.dailyAmount||1),pending=slots.find(item=>!item.id);if(!pending)continue;
-    try{await assignDiscovery(env,user,day,pending.slot)}catch(e){console.error('Scheduled question failed',e.status||500)}
-    if(++prepared>=5)break;
-   }
+   const users=await env.DB.prepare("SELECT u.* FROM users u LEFT JOIN discovery_prep_state p ON p.user_id=u.id WHERE json_extract(u.profile,'$.onboardingComplete')=1 ORDER BY COALESCE(p.checked_at,0),u.created_at LIMIT 2").all();
+   for(const user of users.results)try{await prepareReady(env,user)}catch(e){console.error('Question reserve preparation failed',e.status||500)}
   })());
  }
 };

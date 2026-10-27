@@ -21,7 +21,10 @@ export async function loadMemory(env,userId){
  OR EXISTS(SELECT 1 FROM attempts a WHERE a.user_id=? AND a.question_id=q.id)
  OR EXISTS(SELECT 1 FROM saved s WHERE s.user_id=? AND s.question_id=q.id)
  OR EXISTS(SELECT 1 FROM trivia_game_questions g JOIN trivia_players p ON p.game_id=g.game_id WHERE p.user_id=? AND g.question_id=q.id)
- ORDER BY seen_at DESC,q.id DESC`).bind(userId,userId,userId,userId,userId).all();
+ OR EXISTS(SELECT 1 FROM discovery_queue r WHERE r.user_id=? AND r.question_id=q.id)
+ OR EXISTS(SELECT 1 FROM daily_ready r WHERE r.user_id=? AND r.question_id=q.id)
+ OR EXISTS(SELECT 1 FROM trivia_game_questions g JOIN quiz_participants p ON p.game_id=g.game_id WHERE p.user_id=? AND g.question_id=q.id)
+ ORDER BY seen_at DESC,q.id DESC`).bind(userId,userId,userId,userId,userId,userId,userId,userId).all();
  const records=rows.results.map(row=>({id:row.id,...JSON.parse(row.data),seenAt:row.seen_at,vector:row.model===EMBEDDING_MODEL&&row.vector?JSON.parse(row.vector):null}));
  const missing=records.filter(q=>!q.vector);
  for(let start=0;start<missing.length;start+=64){

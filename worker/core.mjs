@@ -19,6 +19,7 @@ export function equal(a, b) { if (typeof a !== 'string' || typeof b !== 'string'
 export function validateSettings(value) {
  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Invalid settings.');
  const output = {};
+ if('timerSeconds' in value){if(!Number.isInteger(value.timerSeconds)||!(value.timerSeconds===0||value.timerSeconds>=10&&value.timerSeconds<=120))fail('Choose no timer, or 10–120 seconds.');output.timerSeconds=value.timerSeconds}
  if('units' in value){if(!['metric','imperial'].includes(value.units))fail('Choose metric or imperial units.');output.units=value.units}
  if ('theme' in value) { if (!['light','dark'].includes(value.theme)) fail('Invalid theme.'); output.theme = value.theme; }
  if ('time' in value) { if (typeof value.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) fail('Invalid reminder time.'); output.time = value.time; }
@@ -45,7 +46,7 @@ export function validatePeriodWindows(value){
  }return output;
 }
 export function periodMinutes(settings,key){const row=settings.periodWindows?.[key];return row?[timeMinutes(row.start),timeMinutes(row.end)]:DAY_PERIODS[key]||DAY_PERIODS.morning}
-export function randomFriendUsername(){const a=['bright','curious','merry','cosmic','clever','sunny'],b=['otter','robin','panda','fox','owl','badger'];const bytes=crypto.getRandomValues(new Uint8Array(6));return a[bytes[0]%a.length]+'-'+b[bytes[1]%b.length]+'-'+Array.from(bytes.slice(2),n=>n.toString(16).padStart(2,'0')).join('')}
+export function randomFriendUsername(){const a=['Curious','Silent','Ghost','Lunar','Velvet','Sneaky','Cosmic','Misty','Electric','Dancing','Golden','Sleepy','Wandering','Hidden','Wild','Lucky','Sassy','Midnight','Clever','Funky'],b=['Shark','Spider','Otter','Gecko','Panda','Fox','Robin','Dragon','Badger','Manta','Raven','Tiger','Falcon','Dolphin','Lynx','Koala','Phoenix','Moth','Penguin','George'];const n=crypto.getRandomValues(new Uint32Array(3));return a[n[0]%a.length]+b[n[1]%b.length]+String(10+n[2]%9990)}
 export function validateAnswerKey(q){if(typeof q.correctAnswer!=='string'||q.correctAnswer!==q.options[q.correct])fail('The answer text does not match the marked option.',502);return q}
 export function validateReminders(value){
  if(!Array.isArray(value)||value.length>10)fail('Choose up to 10 notification times.');

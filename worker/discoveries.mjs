@@ -1,6 +1,7 @@
 import {fail,normalize} from './core.mjs';
 import {dailyQuestion} from './ai.mjs';
 import {loadMemory} from './memory.mjs';
+import {preparedDaily} from './ready.mjs';
 import {SUBJECTS} from './profiles.mjs';
 export function chooseSubject(interests,includeEverything,history){
  const other=SUBJECTS.filter(topic=>!interests.some(interest=>normalize(interest).includes(normalize(topic))||normalize(topic).includes(normalize(interest))));
@@ -19,6 +20,7 @@ export async function assignDiscovery(env,user,day,slot){
  if(!lock)fail('Another discovery is being prepared. Try again in a moment.',503);
  try{
   const check=await assignedQuestion(env,user.id,day,slot);if(check)return check;
+  const ready=await preparedDaily(env,user,day,slot);if(ready){await env.DB.prepare('INSERT INTO daily_assignments(user_id,day,slot,question_id,subject,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day,slot) DO NOTHING').bind(user.id,day,slot,ready.id,JSON.parse(ready.data).topic,Date.now()).run();return await assignedQuestion(env,user.id,day,slot)}
   const settings=JSON.parse(user.settings),profile=JSON.parse(user.profile||'{}');
   const history=await env.DB.prepare('SELECT subject FROM daily_assignments WHERE user_id=? ORDER BY created_at,day,slot').bind(user.id).all();
   const selection=chooseSubject(profile.interests||[],profile.includeEverything===true,history.results);

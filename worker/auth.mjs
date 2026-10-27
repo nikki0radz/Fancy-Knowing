@@ -33,7 +33,7 @@ export async function signin(request,env,path,input,ctx){
  let user;
  if(signup){
   if(typeof input.code!=='string'||input.code.length>200||!equal(await hash(input.code),await hash(env.SIGNUP_CODE)))fail('The invitation code is incorrect.',403);
-  const salt=randomToken(),pw=await passwordHash(pass,salt),id=crypto.randomUUID(),internalUsername=`email-${id}`,friendUsername=randomFriendUsername();
+  const salt=randomToken(),pw=await passwordHash(pass,salt),id=crypto.randomUUID(),internalUsername=`email-${id}`;let friendUsername=randomFriendUsername();for(let retry=0;retry<10&&await env.DB.prepare('SELECT id FROM users WHERE friend_username=? COLLATE NOCASE').bind(friendUsername).first();retry++)friendUsername=randomFriendUsername();
   const settings=JSON.stringify({theme:'dark',time:'08:00',timezone:'Europe/London'});
   try{await env.DB.batch([env.DB.prepare('INSERT INTO users(id,username,email,password_hash,salt,settings,profile,created_at,friend_username) VALUES (?,?,?,?,?,?,?,?,?)').bind(id,internalUsername,address,pw,salt,settings,'{}',Date.now(),friendUsername),env.DB.prepare('INSERT INTO email_outbox(user_id,email,created_at) VALUES (?,?,?)').bind(id,address,Date.now())])}catch(e){if(String(e).includes('UNIQUE'))fail('That email is already registered. Sign in or use Forgot password.',409);throw e}
   user={id,username:internalUsername,friend_username:friendUsername,email:address,settings,profile:'{}'};

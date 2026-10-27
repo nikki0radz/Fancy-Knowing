@@ -116,3 +116,7 @@ test('answer shuffling preserves the answer and distributes its position',async(
  assert.equal(formatUnits('100 °C'),'100 °C');assert.match(formatUnits('100 °C and 10 kg','imperial'),/212 °F \(100 °C\).*22.05 lb \(10 kg\)/);assert.match(formatUnits('273.15 K','imperial'),/32 °F/);assert.match(formatUnits('2 litres','imperial'),/3.52 UK pt/);
  const converted=displayQuestion(q,'imperial');assert.equal(converted.correct,0);assert.ok(converted.options[0].includes('22.05 lb'));assert.equal(q.options[0],'10 kg');assert.deepEqual(validateSettings({units:'imperial'}),{units:'imperial'});assert.throws(()=>validateSettings({units:'other'}));
 });
+
+test('new usernames use CamelCase words and digits, and optional timers validate',async()=>{
+ const {randomFriendUsername}=await import('../worker/core.mjs');const handles=new Set();for(let i=0;i<100;i++){const name=randomFriendUsername();assert.match(name,/^[A-Z][a-z]+[A-Z][a-z]+\d{2,4}$/);handles.add(name)}assert.ok(handles.size>95);assert.deepEqual(validateSettings({timerSeconds:30}),{timerSeconds:30});assert.deepEqual(validateSettings({timerSeconds:0}),{timerSeconds:0});for(const value of [-1,5,121,'30'])assert.throws(()=>validateSettings({timerSeconds:value}));
+});
