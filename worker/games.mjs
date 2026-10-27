@@ -63,7 +63,7 @@ export async function gamesApi(request,env,user,body){
   if(method==='POST'&&invite[2]==='join'&&!player){
    if(game.group_mode&&game.closed_at||!game.group_mode&&game.completed_at)fail('This quiz is closed to new players.',409);if(game.invitee_id&&game.invitee_id!==user?.id)fail('Sign in to the account invited to this challenge.',403);
    const input=await body(request),name=displayName(input.name||JSON.parse(user?.profile||'{}').name||'Player');
-   await budget(env,'challenge-join:'+await hash(request.headers.get('CF-Connecting-IP')||'unknown'),60,Date.now()+DAY);
+   await budget(env,'challenge-join:'+await hash(request.headers.get('CF-Connecting-IP')||'unknown')+':'+localDay(),200,Date.now()+2*DAY,'Too many quiz joins from this connection today. Please try again tomorrow.');
    if(!user&&!token){token=randomToken();headers['Set-Cookie']=cookieName+'='+token+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=7776000'}
    if(game.group_mode&&(await env.DB.prepare('SELECT COUNT(*) n FROM quiz_participants WHERE game_id=?').bind(game.id).first()).n>=100)fail('This quiz already has 100 players.',409);
    await env.DB.prepare(`INSERT INTO ${playerTable(game)}(id,game_id,seat,user_id,guest_hash,name,joined_at) VALUES (?,?,'guest',?,?,?,?) ON CONFLICT DO NOTHING`).bind(crypto.randomUUID(),game.id,user?.id||null,user?null:await hash(token),name,Date.now()).run();
@@ -87,12 +87,14 @@ export async function gamesApi(request,env,user,body){
  if(method==='POST'&&path==='/api/games'){
   const input=await body(request);if(!['solo','challenge'].includes(input.kind)||!['easy','medium','hard'].includes(input.difficulty)||!Number.isInteger(input.count)||input.count<1||input.count>20||(input.kind==='challenge'&&input.count<2)||! /^[a-f0-9-]{36}$/.test(input.requestId||''))fail('Choose a topic, difficulty and quiz length.');
   const previous=await env.DB.prepare('SELECT * FROM trivia_games WHERE creator_id=? AND request_id=?').bind(user.id,input.requestId).first();if(previous)return json({game:await summary(env,previous,await playerFor(env,previous.id,user,null),url.origin,user?.id,JSON.parse(user?.settings||'{}').units||'metric')});
-  await budget(env,`games:${user.id}:${localDay()}`,12,Date.now()+2*DAY);
   const lockKey='create-game:'+user.id,lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(lockKey,Date.now()+600000,Date.now()).first();if(!lock)fail('Your previous quiz is still being prepared.',409);
+  const quotaKey=`completed-games:${user.id}:${localDay()}`;let reserved=false,created=false;
   try{
    const topic=(await approveTopic(env,user,input.topic)).topic;
    let invitee=null;if(input.friendId!==undefined){if(input.kind!=='challenge'||typeof input.friendId!=='string')fail('Choose a friend for this challenge.');const [low,high]=[user.id,input.friendId].sort();const friend=await env.DB.prepare('SELECT user_low FROM friendships WHERE user_low=? AND user_high=? AND accepted_at IS NOT NULL').bind(low,high).first();if(!friend)fail('Add and accept this friend first.',403);invitee=input.friendId}
    const friendIds=input.friendIds|| (invitee?[invitee]:[]);await validateFriendIds(env,user,friendIds);const group=input.kind==='challenge';
+   await budget(env,`quiz-preparation:${user.id}:${Math.floor(Date.now()/3600000)}`,30,Date.now()+2*3600000,'You’ve started 30 quiz preparations this hour. Please try again next hour.');
+   await budget(env,quotaKey,30,Date.now()+2*DAY,'You’ve created 30 quizzes today. You can still play and share existing quizzes, or create more tomorrow.');reserved=true;
    const count=input.count,answerCount=JSON.parse(user.settings).answerCount||4,{questions,vectors}=await triviaPack(env,user,topic,input.difficulty,count,answerCount),id=crypto.randomUUID(),now=Date.now(),token=input.kind==='challenge'?randomToken():null;
    const commands=[env.DB.prepare('INSERT INTO trivia_games(id,creator_id,request_id,kind,invite_token,topic,difficulty,question_count,created_at,invitee_id,group_mode,timer_seconds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,user.id,input.requestId,input.kind,token,topic,input.difficulty,count,now,null,group?1:0,JSON.parse(user.settings).timerSeconds||0),env.DB.prepare(`INSERT INTO ${group?'quiz_participants':'trivia_players'}(id,game_id,seat,user_id,name,joined_at) VALUES (?,?,'host',?,?,?)`).bind(crypto.randomUUID(),id,user.id,JSON.parse(user.profile||'{}').name||'You',now)];
    for(let index=0;index<questions.length;index++){
@@ -100,8 +102,8 @@ export async function gamesApi(request,env,user,body){
     commands.push(env.DB.prepare('INSERT INTO questions(id,day,fingerprint,concept,data,created_at) VALUES (?,?,?,?,?,?)').bind(qid,localDay()+':game:'+id+':'+index,fingerprint,q.concept,JSON.stringify(q),now));commands.push(env.DB.prepare('INSERT INTO question_embeddings(question_id,model,vector) VALUES (?,?,?)').bind(qid,EMBEDDING_MODEL,JSON.stringify(vectors[index])));
     commands.push(env.DB.prepare('INSERT INTO trivia_game_questions(game_id,position,question_id) VALUES (?,?,?)').bind(id,index,qid));
    }
-   await env.DB.batch(commands);const game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(id).first();if(group&&friendIds.length)await inviteFriends(env,game,user,friendIds);return json({game:await summary(env,game,await playerFor(env,id,user,null),url.origin,user?.id,JSON.parse(user?.settings||'{}').units||'metric')});
-  }finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}
+   await env.DB.batch(commands);created=true;const game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(id).first();if(group&&friendIds.length)await inviteFriends(env,game,user,friendIds);return json({game:await summary(env,game,await playerFor(env,id,user,null),url.origin,user?.id,JSON.parse(user?.settings||'{}').units||'metric')});
+  }finally{try{if(reserved&&!created)await env.DB.prepare('UPDATE budgets SET count=MAX(0,count-1) WHERE key=?').bind(quotaKey).run()}finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}}
  }
  const match=path.match(/^\/api\/games\/([a-f0-9-]{36})(?:\/(answer|verdict|share|invite|close|reopen))?$/);if(match){
   let game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(match[1]).first();if(!game)fail('Quiz not found.',404);let player=await playerFor(env,game.id,user,null);if(!player&&game.invitee_id!==user.id&&!await env.DB.prepare('SELECT user_id FROM quiz_invitations WHERE game_id=? AND user_id=?').bind(game.id,user.id).first())fail('This is a private game.',403);

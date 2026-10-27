@@ -2,7 +2,7 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-let mf,db;const sentEmails=[];let mailFails=false;
+let mf,db;const sentEmails=[];let mailFails=false,quizFails=false;
 const origin='https://fancy-knowing.test';
 async function call(path,{method='GET',body,cookie,originHeader=origin,ip}={}){
  const response=await mf.dispatchFetch(origin+'/api'+path,{method,headers:{...(ip?{'CF-Connecting-IP':ip}:{}),...(body?{'Content-Type':'application/json'}:{}),...(method!=='GET'?{Origin:originHeader}:{}),...(cookie?{Cookie:cookie}:{})},body:body?JSON.stringify(body):undefined});
@@ -26,7 +26,7 @@ let generatedNumber=0,generatedTopic='Science',generationCalls=0;
 before(async()=>{
  mf=new Miniflare(convertV4MiniflareOptions({modules:['index.mjs','core.mjs','ai.mjs','auth.mjs','profiles.mjs','mail.mjs','memory.mjs','discoveries.mjs','games.mjs','trivia.mjs','friends.mjs','quiz.mjs','ready.mjs','participants.mjs','rooms.mjs'].map(f=>({type:'ESModule',path:new URL('../worker/'+f,import.meta.url).pathname})),compatibilityDate:'2026-10-26',d1Databases:['DB'],bindings:{SIGNUP_CODE:'private-test-code',OPENAI_API_KEY:'test-key',RESEND_API_KEY:'test-resend-key',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>',APP_URL:origin},outboundService:async request=>{
   if(new URL(request.url).hostname==='api.resend.com'){if(mailFails)return Response.json({error:'sender not verified'},{status:403});sentEmails.push(await request.json());return Response.json({id:crypto.randomUUID()})}
-  if(new URL(request.url).hostname==='api.openai.com'){const body=await request.json();const verified=verificationFixture(body);if(verified)return verified;
+  if(new URL(request.url).hostname==='api.openai.com'){if(quizFails)return Response.json({error:'fixture unavailable'},{status:503});const body=await request.json();const verified=verificationFixture(body);if(verified)return verified;
    if(new URL(request.url).pathname.endsWith('/embeddings'))return embeddingResponse(body);
    if(body.tools){generationCalls++;generatedNumber++;generatedTopic=JSON.parse(body.input).topic;return aiText('Fixture quiz and official factual evidence.',[triviaUrl,'https://facts.example.test/source'])}
    if(['trivia_pack_review','trivia_pack_sensecheck'].includes(body.text?.format?.name))return aiText({checks:JSON.parse(body.input).questions.map(q=>({accepted:true,correctAnswer:q.correctAnswer,reason:'Independently checked.'}))});
@@ -387,7 +387,7 @@ test('variable quiz lengths, mixed formats, metric defaults and cached AI verdic
  const approved=await call('/topics',{cookie,method:'POST',body:{topic:'General knowledge'}});assert.equal(approved.data.topic,'General knowledge');
  for(const count of [2,20]){
   const created=await call('/games',{cookie,method:'POST',body:{kind:'solo',topic:'General knowledge',difficulty:'medium',count,requestId:crypto.randomUUID()}});assert.equal(created.status,200,JSON.stringify(created.data));const id=created.data.game.id;
-  const rows=(await db.prepare('SELECT q.data FROM trivia_game_questions g JOIN questions q ON q.id=g.question_id WHERE g.game_id=? ORDER BY g.position').bind(id).all()).results.map(r=>JSON.parse(r.data));assert.equal(rows.length,count);assert.ok(rows.some(q=>q.format==='true_false'));if(count===20)assert.ok(rows.some(q=>q.format==='this_or_that'));
+  const rows=(await db.prepare('SELECT q.data FROM trivia_game_questions g JOIN questions q ON q.id=g.question_id WHERE g.game_id=? ORDER BY g.position').bind(id).all()).results.map(r=>JSON.parse(r.data));assert.equal(rows.length,count);assert.ok(rows.some(q=>q.format==='true_false'));assert.ok(rows.every(q=>q.format!=='this_or_that'));if(count===20)assert.equal(rows.filter(q=>q.format==='multiple_choice').length,16);
   for(const q of rows){assert.equal(q.options.length,q.format==='multiple_choice'?4:2);assert.equal(q.correctAnswer,q.options[q.correct])}
   assert.equal((await call('/games/'+id+'/verdict',{cookie,method:'POST',body:{}})).status,403);
   for(let position=0;position<count;position++)assert.equal((await call('/games/'+id+'/answer',{cookie,method:'POST',body:{position,choice:rows[position].correct}})).status,200);
@@ -409,7 +409,7 @@ test('quiz retries retain verified questions and replace only rejected formats',
  if(body.text?.format?.name==='trivia_pack'){const input=JSON.parse(body.input);return aiText({questions:input.formats.map((format,i)=>({format,topic:'History',q:'Verified retry fixture '+round+'-'+i,options:format==='true_false'?['True','False']:Array.from({length:format==='multiple_choice'?4:2},(_,j)=>'Option '+j),correct:0,explanation:'A verified fixture.',concept:'partial-'+round+'-'+i,subtopic:'retry-subject-'+round+'-'+i,source:'https://facts.example.test/partial',triviaSource:triviaUrl,aliases:[],follow:['Why?','How?','Where?']}))})}
  const input=JSON.parse(body.input),fact=body.text?.format?.name==='trivia_pack_review';if(fact)factChecks++;else senseChecks++;return aiText({checks:input.questions.map(q=>({accepted:!(fact&&q.concept==='partial-1-1'),correctAnswer:q.correctAnswer,reason:'Only the first true/false item needs replacement.'}))});
  };
- try{const pack=await triviaPack({DB:db,OPENAI_API_KEY:'test'},{id:'partial-new-user'},'History','medium',3,4);assert.equal(round,2);assert.equal(factChecks,2);assert.equal(senseChecks,2);assert.equal(pack.questions.length,3);assert.ok(pack.questions.some(q=>q.concept==='partial-1-0'));assert.ok(pack.questions.some(q=>q.concept==='partial-1-2'));assert.ok(!pack.questions.some(q=>q.concept==='partial-1-1'));assert.deepEqual(new Set(pack.questions.map(q=>q.format)),new Set(['multiple_choice','true_false','this_or_that']))}finally{globalThis.fetch=previousFetch}
+ try{const pack=await triviaPack({DB:db,OPENAI_API_KEY:'test'},{id:'partial-new-user'},'History','medium',3,4);assert.equal(round,2);assert.equal(factChecks,2);assert.equal(senseChecks,2);assert.equal(pack.questions.length,3);assert.ok(pack.questions.some(q=>q.concept==='partial-1-0'));assert.ok(pack.questions.some(q=>q.concept==='partial-1-2'));assert.ok(!pack.questions.some(q=>q.concept==='partial-1-1'));assert.deepEqual(new Set(pack.questions.map(q=>q.format)),new Set(['multiple_choice','true_false']))}finally{globalThis.fetch=previousFetch}
 });
 
 test('prepared discoveries follow profile interests, consume atomically, and prepare future days',async()=>{
@@ -460,4 +460,23 @@ test('username and topic migrations preserve old lookup names, friendships and q
   for(const file of ['0011_ready_questions_and_groups.sql','0012_keep_requested_topic_label.sql']){const sql=await readFile(new URL('../migrations/'+file,import.meta.url),'utf8');await database.batch(sql.split(';').map(s=>s.trim()).filter(Boolean).map(sql=>database.prepare(sql)))}
   const user=await database.prepare("SELECT * FROM users WHERE id='one'").first();assert.match(user.friend_username,/^[A-Z][a-z]+[A-Z][a-z]+\d+$/);assert.deepEqual(JSON.parse(user.profile).interests,['shark species']);assert.equal((await database.prepare("SELECT user_id FROM friend_username_aliases WHERE alias='CURIOUS-OTTER-AABBCC'").first()).user_id,'one');assert.equal((await database.prepare('SELECT COUNT(*) n FROM friendships').first()).n,1);assert.equal(JSON.parse((await database.prepare("SELECT data FROM questions WHERE id='label-q'").first()).data).topic,'shark species');
  }finally{await instance.dispose()}
+});
+
+
+test('quiz limits count successful creations, refund failures, and preserve replay and lock safety',async()=>{
+ const account=await call('/auth/signup',{method:'POST',ip:'192.0.2.77',body:{email:'quota@example.test',password:'x',code:'private-test-code'}}),cookie=account.cookie,id=account.data.user.id;
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),key=`completed-games:${id}:${day}`;
+ await db.prepare('INSERT INTO budgets(key,count,expires_at) VALUES (?,12,?)').bind(`games:${id}:${day}`,Date.now()+86400000).run();
+ const input={kind:'challenge',topic:'History',difficulty:'easy',count:2,requestId:crypto.randomUUID()};
+ quizFails=true;try{assert.equal((await call('/games',{cookie,method:'POST',body:input})).status,502)}finally{quizFails=false}
+ assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,0);
+ assert.equal(await db.prepare('SELECT key FROM locks WHERE key=?').bind('create-game:'+id).first(),null);
+ const result=await call('/games',{cookie,method:'POST',body:input});assert.equal(result.status,200,JSON.stringify(result.data));assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,1);
+ await db.prepare('UPDATE budgets SET count=30 WHERE key=?').bind(key).run();
+ assert.equal((await call('/games',{cookie,method:'POST',body:input})).data.game.id,result.data.game.id);
+ const limited=await call('/games',{cookie,method:'POST',body:{...input,requestId:crypto.randomUUID()}});assert.equal(limited.status,429);assert.match(limited.data.error,/30 quizzes today/);
+ assert.equal((await call('/games/'+result.data.game.id+'/share',{cookie,method:'POST',body:{}})).status,200);
+ await db.prepare('UPDATE budgets SET expires_at=0 WHERE key=?').bind(key).run();
+ assert.equal((await call('/games',{cookie,method:'POST',body:{...input,requestId:crypto.randomUUID()}})).status,200);
+ assert.equal((await db.prepare('SELECT count FROM budgets WHERE key=?').bind(key).first()).count,1);
 });

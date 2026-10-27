@@ -9,9 +9,9 @@ export async function openai(env, body) {
  if(!response.ok) { console.error('OpenAI request failed', response.status, response.headers.get('x-request-id')); fail(response.status===429?'The AI is busy or its API allowance needs checking. Try again shortly.':'The AI connection needs checking in Cloudflare.',502); }
  const data=await response.json(); if(data.status!=='completed'||!responseText(data))fail('The AI could not finish its answer. Please try again.',502); return data;
 }
-export async function budget(env,key,max,expiresAt) {
- const row=await env.DB.prepare('INSERT INTO budgets(key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 WHERE count<? RETURNING count').bind(key,expiresAt,max).first();
- if(!row)fail('That is enough requests for now. Please try again later.',429);
+export async function budget(env,key,max,expiresAt,message='That is enough requests for now. Please try again later.') {
+ const row=await env.DB.prepare('INSERT INTO budgets(key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END WHERE expires_at<=? OR count<? RETURNING count').bind(key,expiresAt,Date.now(),Date.now(),Date.now(),max).first();
+ if(!row)fail(message,429);
 }
 const topics=['Chemistry','Biology','History','Poetry','Art','Maths','Philosophy','Physics','Space','Psychology','Geography','Literature','Music','Technology','Nature','Oceans','Languages','Architecture','Food science','The human body','Mythology','Film','Engineering','Archaeology'];
 export const schemaFor=count=>({type:'object',additionalProperties:false,required:['correctAnswer','topic','q','options','correct','explanation','follow','source','aliases','concept','subtopic','triviaSource'],properties:{correctAnswer:{type:'string'},subtopic:{type:'string'},triviaSource:{type:'string'},topic:{type:'string'},q:{type:'string'},options:{type:'array',items:{type:'string'},minItems:count,maxItems:count},correct:{type:'integer',minimum:0,maximum:count-1},explanation:{type:'string'},follow:{type:'array',items:{type:'string'},minItems:3,maxItems:3},source:{type:'string'},aliases:{type:'array',items:{type:'string'}},concept:{type:'string'}}});
@@ -25,7 +25,7 @@ export function topicForDay(day,interests=[],includeEverything=false){
 }
 const qualitySchema={type:'object',additionalProperties:false,required:['accepted','reason','correctAnswer'],properties:{correctAnswer:{type:'string'},accepted:{type:'boolean'},reason:{type:'string'}}};
 export async function dailyQuestion(env,day,interests=[],answerCount=4,includeEverything=false,context={}){
- const desiredFormat=context.format||(context.userId?['true_false','this_or_that','multiple_choice','multiple_choice','multiple_choice'][parseInt((await hash(day+context.userId+context.slot)).slice(0,8),16)%5]:'multiple_choice'),wantedCount=desiredFormat==='multiple_choice'?answerCount:2;
+ const desiredFormat=context.format||(context.userId?['true_false','multiple_choice','multiple_choice','multiple_choice','multiple_choice'][parseInt((await hash(day+context.userId+context.slot)).slice(0,8),16)%5]:'multiple_choice'),wantedCount=desiredFormat==='multiple_choice'?answerCount:2;
  const selection=context.topic?{topic:context.topic,focused:true}:topicForDay(day,interests,includeEverything),chosenTopic=selection.focused?selection.topic:null;
  const baseKey=context.userId?`${day}:user:${(await hash(context.userId)).slice(0,24)}:slot:${context.slot||0}`:chosenTopic?day+':'+(await hash(normalize(chosenTopic))).slice(0,24):interests.length?day+':explore:'+(await hash(selection.topic)).slice(0,24):day;
  const key=context.userId?baseKey:answerCount===4?baseKey:baseKey+':answers-'+answerCount;
