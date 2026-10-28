@@ -1,16 +1,17 @@
 import { fail, hash } from './core.mjs';
+import { welcomeMessage } from './welcome.mjs';
 export function emailReady(env){return !!(env.APP_URL&&((env.EMAIL_WEBHOOK_URL&&env.EMAIL_WEBHOOK_SECRET)||(env.RESEND_API_KEY&&env.EMAIL_FROM)))}
 function deliveryFailure(code,status=502){const error=new Error('The email could not be sent. Please try again later.');error.status=status;error.deliveryCode=code;throw error}
-export async function sendEmail(env,{to,subject,text,idempotencyKey}){
+export async function sendEmail(env,{to,subject,text,html,idempotencyKey}){
  if(!emailReady(env))fail('Email delivery is not available yet. Please try again later.',503);
  let response;
  try{
   if(env.EMAIL_WEBHOOK_URL&&env.EMAIL_WEBHOOK_SECRET){
    if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(env.EMAIL_WEBHOOK_URL))deliveryFailure('sender_url',503);
-   response=await fetch(env.EMAIL_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:env.EMAIL_WEBHOOK_SECRET,to,subject,text,idempotencyKey}),signal:AbortSignal.timeout(25000)});
+   response=await fetch(env.EMAIL_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:env.EMAIL_WEBHOOK_SECRET,to,subject,text,html,idempotencyKey}),signal:AbortSignal.timeout(25000)});
    if(!response.ok)deliveryFailure(response.status===401||response.status===403?'gmail_access':'gmail_http');let result;try{result=await response.json()}catch{deliveryFailure('gmail_response')}if(result.ok!==true)deliveryFailure('gmail_rejected');
   }else{
-   response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify({from:env.EMAIL_FROM,to:[to],subject,text}),signal:AbortSignal.timeout(20000)});
+   response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify({from:env.EMAIL_FROM,to:[to],subject,text,html}),signal:AbortSignal.timeout(20000)});
    if(!response.ok)deliveryFailure(response.status===401||response.status===403?'resend_access':'resend_rejected');
   }
  }catch(e){console.error('App email failed',response?.status||e.status||'network');if(e.status)throw e;deliveryFailure('connection')}
@@ -22,8 +23,7 @@ export async function deliverWelcome(env,userId){
  if(!row)return;
  try{
   const origin=new URL(env.APP_URL);if(origin.protocol!=='https:')fail('Invalid app address.',503);
-  const text=`Welcome to Fancy Knowing!\n\nOne little question. Something new to know.\n\nChoose the subjects you love, take a guess, and ask a follow-up whenever your curiosity takes you further. Heart the discoveries you want to remember.\n\nOpen Fancy Knowing:\n${origin.origin}/\n\nIf you ever forget your password, tap Forgot password on the sign-in screen. We’ll email you a reset link.\n\nHappy wondering,\nFancy Knowing\n\nIf you didn’t create an account, you can ignore this email.`;
-  await sendEmail(env,{to:row.email,subject:'Welcome to Fancy Knowing 💡',text,idempotencyKey:row.delivery_key||`fancy-knowing-welcome-${await hash(userId)}`});
+  await sendEmail(env,{to:row.email,...welcomeMessage(origin.origin),idempotencyKey:row.delivery_key||`fancy-knowing-welcome-${await hash(userId)}`});
   await env.DB.prepare('UPDATE email_outbox SET sent_at=?,last_error=NULL WHERE user_id=?').bind(Date.now(),userId).run();
  }catch(e){await env.DB.prepare('UPDATE email_outbox SET last_error=? WHERE user_id=? AND sent_at IS NULL').bind(e.deliveryCode||'connection',userId).run();console.error('Welcome email deferred',e.deliveryCode||e.status||500)}
 }

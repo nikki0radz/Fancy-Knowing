@@ -11,19 +11,22 @@ function equal_(a,b) {
 function doPost(e) {
   let lock;
   try {
-    if(!e||!e.postData||e.postData.contents.length>20000)return reply_({ok:false});
+    if(!e||!e.postData||e.postData.contents.length>60000)return reply_({ok:false});
     const input=JSON.parse(e.postData.contents);
     const secret=PropertiesService.getScriptProperties().getProperty('FANCY_KNOWING_SECRET');
     if(!secret||secret.length<32||typeof input.secret!=='string'||!equal_(input.secret,secret))return reply_({ok:false});
     if(typeof input.to!=='string'||input.to.length>254||! /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(input.to))return reply_({ok:false});
     if(typeof input.subject!=='string'||input.subject.length>200||/[\r\n]/.test(input.subject)||!input.subject.includes('Fancy Knowing'))return reply_({ok:false});
     if(typeof input.text!=='string'||input.text.length>12000||typeof input.idempotencyKey!=='string'||input.idempotencyKey.length>200)return reply_({ok:false});
+    if(input.html!==undefined&&(typeof input.html!=='string'||input.html.length>40000))return reply_({ok:false});
     lock=LockService.getScriptLock();if(!lock.tryLock(10000))return reply_({ok:false});
     const digest=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,input.idempotencyKey);
     const cacheKey='mail-'+Utilities.base64EncodeWebSafe(digest),cache=CacheService.getScriptCache();
     if(cache.get(cacheKey))return reply_({ok:true});
     if(MailApp.getRemainingDailyQuota()<1)return reply_({ok:false});
-    MailApp.sendEmail({to:input.to,subject:input.subject,body:input.text,name:'Fancy Knowing'});
+    const message={to:input.to,subject:input.subject,body:input.text,name:'Fancy Knowing'};
+    if(input.html)message.htmlBody=input.html;
+    MailApp.sendEmail(message);
     cache.put(cacheKey,'sent',21600);
     return reply_({ok:true});
   }catch(error){return reply_({ok:false})}

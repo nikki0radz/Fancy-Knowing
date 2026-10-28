@@ -90,3 +90,9 @@ There is no browser-side way to promote an account. The server checks the config
 At zero allowance, a person can request five extra generations. The administrator approves or declines in Admin & usage, or grants 1–20 extra generations directly to an account. Approvals are replay-safe, per account and valid only until midnight Europe/London. No reusable unlock code or payment is required.
 
 Admin & usage includes historical successful AI/handmade quiz counts, today's successful AI quiz count, and 30 days of future API usage metadata grouped by feature and model. Token telemetry begins with this release; it cannot reconstruct previous token spend or failed generation costs. It stores token counts, request status, search counts and operation IDs, not prompts, replies, passwords or API keys. Search counts are marked inferred when the provider does not report exact billable tool usage. Use OpenAI's usage dashboard for final charges, discounts, search-content charges and any usage whose token data is missing.
+# Updating the styled welcome email
+
+The worker sends the personal field guide in both HTML and plain text. To enable the styled version with the Gmail sender, replace the code in your existing Apps Script project with `google-email/Code.gs`, save, then choose **Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy**. Keep the existing deployment, Execute as Me and access Anyone. The existing `/exec` URL and shared secret stay the same. Script Property changes alone do not need a new version; this code change does.
+
+After updating the sender and the worker deployment, use **Send welcome email again** in My account. No emails are automatically resent to existing users. Download links are placeholders; the current web app link is included. The email explicitly describes the curated question bank as forthcoming until it is integrated.
+
