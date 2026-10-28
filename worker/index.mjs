@@ -38,7 +38,7 @@ async function databaseStatus(env){
 }
 async function api(request,env,ctx){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env),...await databaseStatus(env)});
+ if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',welcomeTemplate:'field-guide-v1',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env),...await databaseStatus(env)});
  if(!env.DB)fail('The DB database binding is missing in Cloudflare.',503);
  if(!['GET','POST','PUT','DELETE'].includes(method))fail('Method not allowed.',405);
  if(method!=='GET'){
