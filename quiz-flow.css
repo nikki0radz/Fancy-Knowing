@@ -65,3 +65,29 @@
 .flow-custom-topics{border-top:1px solid var(--line);padding-top:20px;margin-top:23px}
 .flow-custom-topics>p{font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 13px}
 .express-source{font-size:calc(11px * var(--font-scale,1));line-height:1.5;color:var(--pink);margin:0 0 17px}
+
+/* Change chip: an editable subject card and a separate custom AI route. */
+.quiz-flow-dialog .flow-subject-chip{display:block;width:100%;text-align:left;padding:23px 19px;border:1px solid var(--accent);border-radius:22px;background:var(--panel);color:var(--text)}
+.flow-subject-top{display:flex;align-items:center;gap:14px}
+.flow-subject-copy{flex:1;min-width:0}
+.flow-subject-copy small{display:block;font-size:calc(11px * var(--font-scale,1));letter-spacing:.07em;color:var(--muted);margin-bottom:9px}
+.flow-subject-copy strong{display:block;font-size:calc(28px * var(--font-scale,1));line-height:1.2;letter-spacing:-.6px;overflow-wrap:anywhere}
+.flow-subject-globe{font-size:40px;flex-shrink:0}
+.flow-change-chip{display:inline-flex;align-items:center;gap:7px;background:var(--input);color:var(--pink);border:1px solid var(--accent);border-radius:99px;padding:8px 13px;font-size:calc(12px * var(--font-scale,1));margin-top:17px}
+.flow-route-divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--muted);font-size:calc(11px * var(--font-scale,1))}
+.flow-route-divider:before,.flow-route-divider:after{content:'';height:1px;flex:1;background:var(--line)}
+.flow-ai-route{background:var(--input);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.flow-ai-route.is-open{border-radius:21px}
+.flow-ai-toggle{display:flex;align-items:center;gap:12px;width:100%;padding:15px 18px;background:transparent;border:0;text-align:left;color:var(--text)}
+.flow-ai-spark{font-size:24px;flex-shrink:0}
+.flow-ai-copy{flex:1;min-width:0}
+.flow-ai-copy strong{display:block;font-size:calc(13px * var(--font-scale,1));line-height:1.4}
+.flow-ai-copy small{display:block;font-size:calc(11px * var(--font-scale,1));line-height:1.5;color:var(--muted);margin-top:4px}
+.flow-ai-credit{background:var(--panel);color:var(--pink);padding:5px 9px;border-radius:99px;font-size:calc(11px * var(--font-scale,1));white-space:nowrap}
+.flow-ai-search{padding:17px;border-top:1px solid var(--line)}
+.flow-ai-search .game-label{margin-top:0}
+.flow-ai-search>p{font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 12px}
+.flow-step-content>.flow-credit-note{font-size:calc(11px * var(--font-scale,1));color:var(--muted);margin:19px 0 0}
+.flow-standard-topics{margin-top:20px}
+.game-topic-pills .topicpill[aria-pressed=true]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 17%,var(--panel));color:var(--pink)}
+@media(max-width:370px){.quiz-flow-dialog .flow-subject-chip{padding:21px 15px}.flow-subject-copy strong{font-size:calc(25px * var(--font-scale,1))}.flow-subject-globe{font-size:35px}.flow-ai-toggle{gap:9px;padding:14px}.flow-ai-credit{padding:5px 7px}}
