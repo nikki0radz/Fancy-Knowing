@@ -820,4 +820,8 @@ test('quiz preparation resumes from checkpoints without repeating paid calls or 
  assert.equal((await call('/games/quota',{cookie})).data.used,2);
  await db.prepare('UPDATE quiz_jobs SET updated_at=? WHERE id=?').bind(Date.now()-31*60000,abandonedId).run();
  await call('/quiz-jobs/'+abandonedId,{cookie});await call('/quiz-jobs/'+abandonedId,{cookie});assert.equal((await call('/games/quota',{cookie})).data.used,1);
+ const large=await call('/quiz-jobs',{cookie,method:'POST',body:{...input,count:20,requestId:crypto.randomUUID()}});let largeGame;
+ for(let i=0;i<70;i++){const next=await call('/quiz-jobs/'+large.data.job.id+'/advance',{cookie,method:'POST',body:{}});if(next.data.game){largeGame=next.data.game;break}assert.notEqual(next.data.job.status,'failed',JSON.stringify(next.data))}
+ assert.equal(largeGame?.count,20,'Larger quizzes finish using smaller verified batches');assert.equal((await call('/games/quota',{cookie})).data.used,2);
+
 });

@@ -3,7 +3,7 @@ import {hash} from './core.mjs';
 // API usage is recorded only by the real call, never by a replay.
 export async function quizJobCall(env,kind,input,perform){
  const job=env.AI_JOB;if(!job)return perform();
- const position=job.callIndex++,key=await hash(JSON.stringify(input)),row=await env.DB.prepare('SELECT kind,request_hash,data FROM quiz_job_calls WHERE job_id=? AND position=?').bind(job.id,position).first();
+ const position=job.callIndex++,key=await hash(JSON.stringify(input)),row=job.calls?job.calls.get(position):await env.DB.prepare('SELECT kind,request_hash,data FROM quiz_job_calls WHERE job_id=? AND position=?').bind(job.id,position).first();
  if(row){if(row.kind!==kind||row.request_hash!==key){const error=new Error('Quiz preparation changed while it was running. Start a fresh quiz.');error.status=409;throw error}return JSON.parse(row.data)}
  const result=await perform();
  job.state.label=kind==='embeddings'?'Checking for repeated questions…':input.text?.format?.name==='learning_topic'?'Topic checked. Finding fresh facts…':input.text?.format?.name==='trivia_pack'?'Questions drafted. Checking the facts…':input.text?.format?.name==='trivia_pack_review'?'Facts checked. Giving the wording one last look…':input.text?.format?.name==='trivia_pack_sensecheck'?'Checks complete. Putting your quiz together…':/Independently fact-check/.test(input.instructions||'')?'Independent sources checked…':'Research gathered. Preparing the questions…';

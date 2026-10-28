@@ -34,7 +34,8 @@ export async function quizJobsApi(request,env,user,body){
  if(request.method==='GET'&&!match[2]||row.status==='failed')return json(status(row));
  if(request.method!=='POST'||match[2]!=='advance')fail('Not found.',404);
  const lockKey='quiz-job:'+row.id,now=Date.now(),lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(lockKey,now+120000,now).first();if(!lock)return json({...status(row),busy:true});
- const state=JSON.parse(row.state),job={id:row.id,state,callIndex:0,paused:false},aiEnv={...env,AI_JOB:job,AI_USAGE_USER_ID:user.id,AI_USAGE_ACTION:'quiz',AI_USAGE_OPERATION:row.request_id};
+ const cachedCalls=(await env.DB.prepare('SELECT position,kind,request_hash,data FROM quiz_job_calls WHERE job_id=?').bind(row.id).all()).results;
+ const state=JSON.parse(row.state),job={id:row.id,state,callIndex:0,paused:false,calls:new Map(cachedCalls.map(c=>[c.position,c]))},aiEnv={...env,AI_JOB:job,AI_USAGE_USER_ID:user.id,AI_USAGE_ACTION:'quiz',AI_USAGE_OPERATION:row.request_id};
  try{
   const input=JSON.parse(row.input);if(state.day!==localDay())fail('A new daily allowance has started. Start a fresh quiz; your earlier reserved credit has been returned.',409);
   if(!state.memoryReady){
