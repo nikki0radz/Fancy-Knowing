@@ -2,6 +2,7 @@ import {isAdmin} from './allowances.mjs';
 import { fail, username, password, passwordHash, randomToken, hash, equal, DAY, SESSION_DAYS, randomFriendUsername } from './core.mjs';
 import { budget } from './ai.mjs';
 import { emailReady, sendEmail, deliverWelcome } from './mail.mjs';
+import { recoveryMessage } from './welcome.mjs';
 export const COOKIE='__Host-fancy-session';
 export const sessionCookie=(token,age=SESSION_DAYS*86400)=>`${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
 export const json=(value,status=200,headers={})=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
@@ -16,7 +17,7 @@ async function sendLink(env,to,token,purpose){
  const url=new URL(appOrigin(env));url.searchParams.set(purpose==='reset'?'reset':'verify',token);
  const action=purpose==='reset'?'Reset your password':'Confirm your email';
  const text=`${action} for Fancy Knowing\n\n${url.href}\n\nThis link works once and expires in 20 minutes. If you did not request it, you can ignore this email. Your password and account will stay unchanged.`;
- await sendEmail(env,{to,subject:`Fancy Knowing · ${action}`,text,idempotencyKey:`fancy-knowing-${purpose}-${await hash(token)}`});
+ await sendEmail(env,{to,...(purpose==='reset'?recoveryMessage(url.href):{subject:`Fancy Knowing · ${action}`,text}),idempotencyKey:`fancy-knowing-${purpose}-${await hash(token)}`});
 }
 async function emailBudget(env,request,address){const now=Date.now(),slot=Math.floor(now/3600000),ip=await hash(request.headers.get('CF-Connecting-IP')||'local');await budget(env,`email-ip:${ip}:${slot}`,20,now+2*3600000);await budget(env,`email-address:${await hash(address)}:${slot}`,5,now+2*3600000)}
 async function createLink(env,user,address,purpose){

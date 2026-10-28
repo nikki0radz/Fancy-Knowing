@@ -17,3 +17,7 @@ test('field guide keeps both email formats within sender limits and describes th
  const {welcomeMessage}=await import('../worker/welcome.mjs');const message=welcomeMessage('https://fancy-knowing.nikki0radz.workers.dev/');
  assert.match(message.html,/A little guide, from me to you/);assert.match(message.text,/Love from Nicole xx/);assert.match(message.text,/Once it’s ready/);assert.match(message.html,/href="https:\/\/fancy-knowing.nikki0radz.workers.dev\/"/);assert.match(message.text,/Forgot password/);assert.ok(message.text.length<12000);assert.ok(message.html.length<40000);assert.ok(JSON.stringify({...message,secret:'a'.repeat(64),to:'a@example.com',idempotencyKey:'welcome'}).length<20000);assert.throws(()=>welcomeMessage('http://example.com'));
 });
+test('short recovery email preserves the reset URL, expiry and plain-text alternative',async()=>{
+ const {recoveryMessage}=await import('../worker/welcome.mjs');const url='https://fancy-knowing.example/?reset=abc123&test=1',message=recoveryMessage(url);
+ assert.equal(message.subject,'Reset your Fancy Knowing password');assert.ok(message.text.includes(url));assert.ok(message.html.includes('href="https://fancy-knowing.example/?reset=abc123&amp;test=1"'));assert.match(message.html,/20 minutes/);assert.match(message.text,/won’t change unless/);assert.match(message.html,/Love from Nicole xx/);assert.throws(()=>recoveryMessage('http://example.com'));assert.throws(()=>recoveryMessage('https://user:pass@example.com'));
+});
