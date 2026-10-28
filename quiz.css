@@ -26,7 +26,7 @@
 
 /* Shared binary settings switch; theme retains its sun/moon control. */
 .setting-switch{position:relative;display:inline-block;width:66px;height:36px;flex-shrink:0;margin-left:12px;vertical-align:middle}
-.setting .setting-switch input[type=checkbox]{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;z-index:1;cursor:pointer}
+.setting-switch input[type=checkbox]{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;z-index:1;cursor:pointer}
 .switch-track{display:block;position:absolute;inset:0;background:var(--input);border:1px solid var(--line);border-radius:99px;pointer-events:none;transition:background .18s ease,border-color .18s ease}
 .switch-track:before{content:'';position:absolute;top:4px;left:4px;width:26px;height:26px;border-radius:50%;background:var(--muted);box-shadow:0 2px 5px #0002;transition:transform .18s ease,background .18s ease}
 .switch-track:after{content:'Off';position:absolute;right:7px;top:0;height:34px;display:flex;align-items:center;font-size:10px;font-weight:700;color:var(--muted)}
