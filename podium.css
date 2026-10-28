@@ -106,3 +106,15 @@ body:has(#home:not([hidden])) #headerprofile{display:none}
 .history-question-open{flex:1;min-width:0;padding:4px 0;background:transparent;text-align:left;font-size:calc(13px * var(--font-scale,1));font-weight:550;line-height:1.45;overflow-wrap:anywhere}
 .history-recall{flex-shrink:0;padding:10px 0 10px 8px;background:transparent;color:var(--pink);font-size:calc(10px * var(--font-scale,1));line-height:1.4;text-align:right;max-width:95px}
 .history-recall:hover,.history-question-open:hover{color:var(--pink)}
+/* A quieter Home header and a short, optional first-run guide. */
+.home-profile-divider{border:0;border-top:1px solid var(--line);width:100%;margin:24px 0 28px}
+header .brand{font-size:24px;gap:8px}header .brand .bulb-logo{width:44px;height:53px}
+#homequizrequests{margin:0 0 28px}#homequizrequests[hidden]{display:none}#homequizrequests .home-section-title span{color:var(--pink)}
+.walkthrough-card{border:1px solid var(--accent);border-radius:22px;background:var(--panel);padding:20px;margin:0 0 24px;scroll-margin-top:16px}
+.walkthrough-top{display:flex;justify-content:space-between;align-items:center;gap:12px}.walkthrough-top>span{font-size:10px;letter-spacing:.07em;color:var(--pink)}.walkthrough-top button{font-size:12px;flex-shrink:0}
+.walkthrough-card h2{font-size:23px;line-height:1.2;margin:17px 0 10px}.walkthrough-card p{font-size:14px;line-height:1.6;color:var(--muted)}.walkthrough-card .secondary-button{padding:12px 17px;width:100%}.walkthrough-card .error:empty{display:none}
+.walkthrough-highlight{outline:2px solid var(--accent);outline-offset:7px;border-radius:14px}
+#experienceDialog{width:calc(100% - 28px);max-width:440px;max-height:90dvh;border-radius:26px;background:var(--bg)}#experienceDialog .field{margin:8px 0 18px}#experienceDialog label{font-size:14px}#experienceDialog .delete-confirm{display:flex;gap:10px;align-items:center;margin:8px 0 20px;font-size:13px;line-height:1.6}#experienceDialog .delete-confirm input{flex-shrink:0;accent-color:var(--accent)}.danger-button{background:#ba344d;color:white}
+.suggestion-thanks{text-align:center}.suggestion-thanks>span{font-size:55px}.suggestion-thanks p{color:var(--muted);line-height:1.6}.settings-help{border-top:1px solid var(--line);margin-top:26px;padding-top:17px}.settings-help button{margin-top:12px}.settings-help .smallnote{text-align:center}
+@media(max-width:420px){header .brand{font-size:21px;gap:6px}header .brand .bulb-logo{width:34px;height:43px}}
+@media(max-width:350px){header .brand{font-size:19px}header .brand .bulb-logo{width:30px;height:39px}}

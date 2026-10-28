@@ -72,7 +72,7 @@ window.addEventListener('popstate',event=>{
   if(state.index===0&&history.state?.index===0&&user){navigationIndex=1;history.pushState({fancyKnowing:true,index:1,route:state.route},'')}
  });
 });
-function clearAccount(){setupDraft=null;profileEditing=false;editingTopicsOnly=false;onboardingLoadId++;if(typeof clearGameState==='function')clearGameState();navigationReady=false;navigationKey='';visibleRoute=null;user=null;reminderDraft=null;reminderDraftOwner=null;editingReminderSlot=null;reminderSaving=false;reminderNotice='';renderHeaderProfile();current=null;todayId=null;library=[];chatId=null;chatMessages=[];if($('#chat').open)$('#chat').close();$('#nav').hidden=true}
+function clearAccount(){if(typeof stopWalkthrough==='function')stopWalkthrough();setupDraft=null;profileEditing=false;editingTopicsOnly=false;onboardingLoadId++;if(typeof clearGameState==='function')clearGameState();navigationReady=false;navigationKey='';visibleRoute=null;user=null;reminderDraft=null;reminderDraftOwner=null;editingReminderSlot=null;reminderSaving=false;reminderNotice='';renderHeaderProfile();current=null;todayId=null;library=[];chatId=null;chatMessages=[];if($('#chat').open)$('#chat').close();$('#nav').hidden=true}
 function page(name){if(needsProfileSetup()&&!['auth','onboarding','emailsetup'].includes(name)){showOnboarding();return false}['admin','home','myprofile','friends','notifications','gameSetup','games','gamePlay','auth','today','bank','settings','onboarding','emailsetup'].forEach(p=>$('#'+p).hidden=p!==name);$('#nav').hidden=!user||['auth','onboarding','emailsetup'].includes(name);document.querySelectorAll('[data-page]').forEach(b=>{if(b.dataset.page===(['today','gameSetup','games','gamePlay'].includes(name)?'home':name))b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});window.scrollTo({top:0})}
 function showAuth(error=''){
  page('auth');const signup=authMode==='signup';
@@ -85,6 +85,7 @@ function showAuth(error=''){
 async function afterSignIn(){
  if(!user.email)return showEmailSetup(true);
  if(!user.profile?.onboardingComplete)return showOnboarding();
+ if(typeof resumeWalkthrough==='function'&&user.walkthrough&&user.walkthrough!=='done')return resumeWalkthrough();
  if(pendingGameId){const id=pendingGameId;pendingGameId=null;return openGame(id)}
  if(challengeInvite)return openGame(null,challengeInvite);
  if(new URLSearchParams(location.search).has('inbox')){history.replaceState(history.state,'',location.pathname);return openNotifications()}

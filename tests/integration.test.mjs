@@ -24,7 +24,7 @@ function generationMock(handler){return async(url,options)=>{
 }}
 let generatedNumber=0,generatedTopic='Science',generationCalls=0;
 before(async()=>{
- mf=new Miniflare(convertV4MiniflareOptions({modules:['index.mjs','core.mjs','ai.mjs','auth.mjs','profiles.mjs','mail.mjs','welcome.mjs','memory.mjs','discoveries.mjs','games.mjs','trivia.mjs','friends.mjs','quiz.mjs','ready.mjs','participants.mjs','rooms.mjs','ranking.mjs','push.mjs','web-push.vendor.mjs','admin.mjs','allowances.mjs','usage.mjs'].map(f=>({type:'ESModule',path:new URL('../worker/'+f,import.meta.url).pathname})),compatibilityDate:'2026-10-26',d1Databases:['DB'],bindings:{SIGNUP_CODE:'private-test-code',OPENAI_API_KEY:'test-key',RESEND_API_KEY:'test-resend-key',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>',APP_URL:origin},outboundService:async request=>{
+ mf=new Miniflare(convertV4MiniflareOptions({modules:['index.mjs','core.mjs','ai.mjs','auth.mjs','profiles.mjs','mail.mjs','welcome.mjs','memory.mjs','discoveries.mjs','games.mjs','trivia.mjs','friends.mjs','quiz.mjs','ready.mjs','participants.mjs','rooms.mjs','ranking.mjs','push.mjs','web-push.vendor.mjs','admin.mjs','account.mjs','allowances.mjs','usage.mjs'].map(f=>({type:'ESModule',path:new URL('../worker/'+f,import.meta.url).pathname})),compatibilityDate:'2026-10-26',d1Databases:['DB'],bindings:{SIGNUP_CODE:'private-test-code',OPENAI_API_KEY:'test-key',RESEND_API_KEY:'test-resend-key',EMAIL_FROM:'Fancy Knowing <onboarding@resend.dev>',APP_URL:origin},outboundService:async request=>{
   if(new URL(request.url).hostname==='fcm.googleapis.com'){sentPush.push({headers:Object.fromEntries(request.headers),body:await request.arrayBuffer()});return new Response(null,{status:201})}
   if(new URL(request.url).hostname==='api.resend.com'){if(mailFails)return Response.json({error:'sender not verified'},{status:403});sentEmails.push(await request.json());return Response.json({id:crypto.randomUUID()})}
   if(new URL(request.url).hostname==='api.openai.com'){if(quizFails)return Response.json({error:'fixture unavailable'},{status:503});const body=await request.json();const verified=verificationFixture(body);if(verified)return verified;
@@ -38,7 +38,7 @@ before(async()=>{
   return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'Its gills take oxygen out of the water.'}]}]})};
   return new Response('Unexpected outbound request',{status:500});
  }}));
- db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql','0005_shared_questions.sql','0006_question_slots_memory.sql','0007_trivia_challenges.sql','0008_friends.sql','0009_correct_tungsten.sql','0010_quiz_reveal.sql','0011_ready_questions_and_groups.sql','0012_keep_requested_topic_label.sql','0013_profile_mail_friend_notifications.sql','0014_quiz_ranking.sql','0015_phone_push.sql','0016_optional_refreshers.sql','0017_quiz_lobbies.sql','0018_quiz_comments.sql','0019_quiz_reactions.sql','0020_admin_allowances_usage.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
+ db=await mf.getD1Database('DB');const schema=(await Promise.all(['0001_initial.sql','0002_email_profiles.sql','0003_avatar.sql','0004_welcome_email.sql','0005_shared_questions.sql','0006_question_slots_memory.sql','0007_trivia_challenges.sql','0008_friends.sql','0009_correct_tungsten.sql','0010_quiz_reveal.sql','0011_ready_questions_and_groups.sql','0012_keep_requested_topic_label.sql','0013_profile_mail_friend_notifications.sql','0014_quiz_ranking.sql','0015_phone_push.sql','0016_optional_refreshers.sql','0017_quiz_lobbies.sql','0018_quiz_comments.sql','0019_quiz_reactions.sql','0020_admin_allowances_usage.sql','0021_walkthrough_and_suggestions.sql'].map(f=>readFile(new URL('../migrations/'+f,import.meta.url),'utf8')))).join('\n');
  await db.batch(schema.replace(/CREATE TRIGGER[\s\S]*?END;/g,m=>m.replaceAll(';','__SQL_SEMI__')).split(';').map(s=>s.replaceAll('__SQL_SEMI__',';').trim()).filter(Boolean).map(s=>db.prepare(s)));
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const q={topic:'Nature',q:'How many hearts does an octopus have?',options:['One','Two','Three','Four'],correct:2,explanation:'Three. Two serve its gills.',source:'https://www.nhm.ac.uk/',aliases:['3'],concept:'octopus-hearts',follow:['What do its gills do?','Why is its blood blue?','Do the hearts do the same job?']};
@@ -462,7 +462,7 @@ test('username and topic migrations preserve old lookup names, friendships and q
   const profile=JSON.stringify({name:'Nicole',interests:['Marine biology focused on shark species'],onboardingComplete:true});
   await database.batch([database.prepare("INSERT INTO users(id,username,friend_username,password_hash,salt,settings,profile,created_at) VALUES ('one','internal-one','curious-otter-aabbcc','x','x','{}',?,1)").bind(profile),database.prepare("INSERT INTO users(id,username,friend_username,password_hash,salt,settings,profile,created_at) VALUES ('two','internal-two','silent-robin-ddeeff','x','x','{}','{}',2)"),database.prepare("INSERT INTO friendships(user_low,user_high,requested_by,created_at,accepted_at) VALUES ('one','two','one',1,2)"),database.prepare("INSERT INTO approved_topics(user_id,topic,created_at) VALUES ('one','Marine biology focused on shark species',1)"),database.prepare('INSERT INTO questions(id,day,fingerprint,concept,data,created_at) VALUES (?,?,?,?,?,?)').bind('label-q','label-day','label-fp','label-fact',JSON.stringify({topic:'Marine biology focused on shark species',q:'Fixture question',options:['One','Two'],correct:0}),1)]);
   await database.batch([database.prepare("UPDATE users SET email=id||'@migration.test'"),database.prepare("INSERT INTO users(id,username,email,friend_username,password_hash,salt,settings,profile,created_at) VALUES ('three','internal-three','three@migration.test','third-user','x','x','{}','{}',3)"),database.prepare("INSERT INTO email_outbox(user_id,email,created_at,sent_at,attempts) VALUES ('one','one@migration.test',1,123,1)"),database.prepare("INSERT INTO email_outbox(user_id,email,created_at,attempts,last_attempt_at) VALUES ('three','old-address@migration.test',1,8,999)"),database.prepare("INSERT INTO friendships(user_low,user_high,requested_by,created_at) VALUES ('three','two','two',3)")]);
-  for(const file of ['0011_ready_questions_and_groups.sql','0012_keep_requested_topic_label.sql','0013_profile_mail_friend_notifications.sql','0014_quiz_ranking.sql','0015_phone_push.sql','0016_optional_refreshers.sql','0017_quiz_lobbies.sql','0018_quiz_comments.sql','0019_quiz_reactions.sql','0020_admin_allowances_usage.sql']){const sql=await readFile(new URL('../migrations/'+file,import.meta.url),'utf8');await database.batch(sql.replace(/CREATE TRIGGER[\s\S]*?END;/g,m=>m.replaceAll(';','__SQL_SEMI__')).split(';').map(s=>s.replaceAll('__SQL_SEMI__',';').trim()).filter(Boolean).map(sql=>database.prepare(sql)))}
+  for(const file of ['0011_ready_questions_and_groups.sql','0012_keep_requested_topic_label.sql','0013_profile_mail_friend_notifications.sql','0014_quiz_ranking.sql','0015_phone_push.sql','0016_optional_refreshers.sql','0017_quiz_lobbies.sql','0018_quiz_comments.sql','0019_quiz_reactions.sql','0020_admin_allowances_usage.sql','0021_walkthrough_and_suggestions.sql']){const sql=await readFile(new URL('../migrations/'+file,import.meta.url),'utf8');await database.batch(sql.replace(/CREATE TRIGGER[\s\S]*?END;/g,m=>m.replaceAll(';','__SQL_SEMI__')).split(';').map(s=>s.replaceAll('__SQL_SEMI__',';').trim()).filter(Boolean).map(sql=>database.prepare(sql)))}
   const user=await database.prepare("SELECT * FROM users WHERE id='one'").first();assert.match(user.friend_username,/^[A-Z][a-z]+[A-Z][a-z]+\d+$/);assert.deepEqual(JSON.parse(user.profile).interests,['shark species']);assert.equal((await database.prepare("SELECT user_id FROM friend_username_aliases WHERE alias='CURIOUS-OTTER-AABBCC'").first()).user_id,'one');assert.equal((await database.prepare('SELECT COUNT(*) n FROM friendships').first()).n,2);assert.equal((await database.prepare("SELECT sent_at FROM email_outbox WHERE user_id='one'").first()).sent_at,123);assert.equal((await database.prepare("SELECT email FROM email_outbox WHERE user_id='two'").first()).email,'two@migration.test');const revived=await database.prepare("SELECT * FROM email_outbox WHERE user_id='three'").first();assert.equal(revived.attempts,0);assert.equal(revived.last_attempt_at,null);assert.equal(revived.email,'three@migration.test');const incoming=await database.prepare("SELECT * FROM friend_notifications WHERE user_id='three'").first();assert.equal(incoming.actor_id,'two');assert.equal(incoming.kind,'request');assert.equal(JSON.parse((await database.prepare("SELECT data FROM questions WHERE id='label-q'").first()).data).topic,'shark species');
  }finally{await instance.dispose()}
 });
@@ -676,4 +676,63 @@ test('personal journal uses private first answers, a seven-day window and distin
  await db.prepare('INSERT INTO trivia_players(id,game_id,seat,user_id,name,joined_at,completed_at) VALUES (?,?,?,?,?,?,?)').bind('journal-legacy-player','journal-game','host',id,'Journal',now,now).run();await db.prepare('INSERT INTO quiz_participants(id,game_id,seat,user_id,name,joined_at,completed_at) VALUES (?,?,?,?,?,?,?)').bind('journal-new-player','journal-game','host',id,'Journal',now,now).run();
  const response=await call('/my-profile',{cookie});assert.equal(response.status,200);const j=response.data.journal;assert.equal(j.answered,13);assert.equal(j.correct,8);assert.equal(j.accuracy,62);assert.equal(j.totalWeek,12);assert.equal(j.averagePerDay,1.7);assert.equal(j.week.length,7);assert.equal(j.strengths[0].topic,'Nature');assert.equal(j.strengths[0].answered,7);assert.equal(j.practice[0].topic,'History');assert.ok(![...j.strengths,...j.practice].some(t=>t.topic==='Space'));assert.equal(response.data.stats.quizzes,1);assert.equal((await call('/my-profile')).status,401);
  const blank=await call('/auth/signup',{method:'POST',ip:'192.0.2.166',body:{email:'journal-blank@example.test',password:'x',code:'private-test-code'}});const empty=(await call('/my-profile',{cookie:blank.cookie})).data.journal;assert.equal(empty.answered,0);assert.equal(empty.averagePerDay,0);assert.equal(empty.strengths.length,0);assert.equal(empty.practice.length,0);
+});
+
+test('first-run guide is account-scoped and topic suggestions are private, durable and idempotent',async()=>{
+ const a=await call('/auth/signup',{method:'POST',ip:'198.51.100.201',body:{email:'tour-first@example.com',password:'a',code:'private-test-code'}});
+ const b=await call('/auth/signup',{method:'POST',ip:'198.51.100.201',body:{email:'tour-other@example.com',password:'b',code:'private-test-code'}});
+ assert.equal(a.data.user.walkthrough,'welcome');
+ assert.equal((await call('/account/walkthrough',{method:'PUT',cookie:a.cookie,body:{step:'question'}})).status,200);
+ assert.equal((await call('/me',{cookie:a.cookie})).data.user.walkthrough,'question');
+ assert.equal((await call('/me',{cookie:b.cookie})).data.user.walkthrough,'welcome');
+ assert.equal((await call('/account/walkthrough',{method:'PUT',cookie:a.cookie,body:{step:'nonsense'}})).status,400);
+ assert.equal((await call('/account/walkthrough',{method:'PUT',body:{step:'done'}})).status,401);
+ const id=crypto.randomUUID(),body={id,topic:'Species of birds',note:'British garden birds please'};
+ for(let i=0;i<2;i++)assert.equal((await call('/topic-suggestions',{method:'POST',cookie:a.cookie,body})).status,200);
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM topic_suggestions WHERE id=?').bind(id).first()).n,1);
+ assert.equal((await call('/topic-suggestions',{method:'POST',cookie:b.cookie,body})).status,409);
+ assert.equal((await call('/topic-suggestions',{cookie:a.cookie})).status,403);
+ assert.equal((await call('/topic-suggestions',{method:'PUT',cookie:a.cookie,body:{id}})).status,403);
+ assert.equal((await call('/topic-suggestions',{method:'POST',cookie:a.cookie,body:{id:crypto.randomUUID(),topic:'x'}})).status,400);
+ const {accountApi}=await import('../worker/account.mjs');const env={DB:db,ADMIN_USER_ID:b.data.user.id};
+ const response=await accountApi(new Request(origin+'/api/topic-suggestions'),env,b.data.user,async()=>({}));
+ assert.ok((await response.json()).suggestions.some(s=>s.id===id&&s.note===body.note));
+ await accountApi(new Request(origin+'/api/topic-suggestions',{method:'PUT'}),env,b.data.user,async()=>({id}));
+ assert.equal((await db.prepare('SELECT status FROM topic_suggestions WHERE id=?').bind(id).first()).status,'reviewed');
+});
+
+test('account deletion verifies password, removes dependent quiz data, revokes sessions and frees the email',async()=>{
+ const email='delete-and-recreate@example.com',password='simple';
+ const a=await call('/auth/signup',{method:'POST',ip:'198.51.100.202',body:{email,password,code:'private-test-code'}}),cookie=a.cookie,id=a.data.user.id;
+ const b=await call('/auth/signup',{method:'POST',ip:'198.51.100.201',body:{email:'delete-survivor@example.com',password:'b',code:'private-test-code'}}),other=b.data.user.id;
+ const now=Date.now();
+ for(const [game,creator] of [['delete-owned',id],['delete-other',other]]){
+  await db.prepare('INSERT INTO trivia_games(id,creator_id,request_id,kind,topic,difficulty,question_count,created_at) VALUES (?,?,?,?,?,?,?,?)').bind(game,creator,crypto.randomUUID(),'challenge','Birds','easy',1,now).run();
+  await db.prepare('INSERT INTO trivia_game_questions(game_id,position,question_id) VALUES (?,0,?)').bind(game,'test-question').run();
+ }
+ for(const [player,game,owner] of [['delete-host','delete-owned',id],['delete-guest','delete-owned',other],['delete-visitor','delete-other',id]]){
+  await db.prepare('INSERT INTO quiz_participants(id,game_id,seat,user_id,name,joined_at) VALUES (?,?,?,?,?,?)').bind(player,game,player==='delete-host'?'host':'guest',owner,'Name',now).run();
+  await db.prepare('INSERT INTO quiz_responses(player_id,position,choice,correct) VALUES (?,0,0,0)').bind(player).run();
+ }
+ await db.prepare('INSERT INTO quiz_comments(id,game_id,author_key,name,text,created_at) VALUES (?,?,?,?,?,?)').bind('delete-comment','delete-other',id,'Name','Hello',now).run();
+ await db.prepare("INSERT INTO quiz_reactions(game_id,author_key,emoji,created_at) VALUES (?,?,?,?)").bind('delete-owned',other,'🔥',now).run();
+ await db.prepare('INSERT INTO quiz_invitations(game_id,user_id,created_at) VALUES (?,?,?)').bind('delete-owned',other,now).run();
+ await db.prepare('UPDATE trivia_games SET invitee_id=? WHERE id=?').bind(id,'delete-other').run();
+ const [low,high]=[id,other].sort();await db.prepare('INSERT INTO friendships(user_low,user_high,requested_by,created_at) VALUES (?,?,?,?)').bind(low,high,id,now).run();
+ await db.prepare('INSERT INTO friend_username_aliases(alias,user_id) VALUES (?,?)').bind('DeleteAlias',id).run();
+ await db.prepare('INSERT INTO discovery_queue(user_id,question_id,profile_key,created_at) VALUES (?,?,?,?)').bind(id,'test-question','test',now).run();
+ await db.prepare('INSERT INTO daily_ready(user_id,day,slot,profile_key,question_id,created_at) VALUES (?,?,0,?,?,?)').bind(id,'2099-01-01','test','test-question',now).run();
+ await db.prepare('INSERT INTO discovery_prep_state(user_id,checked_at) VALUES (?,?)').bind(id,now).run();
+ await db.prepare('INSERT INTO quiz_grants(id,user_id,day,amount,granted_by,created_at) VALUES (?,?,?,5,?,?)').bind(crypto.randomUUID(),other,'2099-01-01',id,now).run();
+ assert.equal((await call('/account',{method:'DELETE',cookie,body:{password:'wrong',confirm:'DELETE'}})).status,403);
+ assert.equal((await call('/account',{method:'DELETE',cookie,body:{password}})).status,400);
+ assert.equal((await call('/me',{cookie})).status,200);
+ const deleted=await call('/account',{method:'DELETE',cookie,body:{password,confirm:'DELETE'}});assert.equal(deleted.status,200,JSON.stringify(deleted.data));
+ assert.equal((await call('/me',{cookie})).status,401);assert.equal((await call('/me',{cookie:b.cookie})).status,200);
+ assert.equal(await db.prepare('SELECT id FROM users WHERE id=?').bind(id).first(),null);
+ assert.equal(await db.prepare('SELECT id FROM trivia_games WHERE id=?').bind('delete-owned').first(),null);
+ assert.equal((await db.prepare('SELECT invitee_id FROM trivia_games WHERE id=?').bind('delete-other').first()).invitee_id,null);
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM quiz_participants WHERE user_id=?').bind(id).first()).n,0);
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM quiz_comments WHERE author_key=?').bind(id).first()).n,0);
+ assert.equal((await call('/auth/signup',{method:'POST',ip:'198.51.100.202',body:{email,password,code:'private-test-code'}})).status,200);
 });
