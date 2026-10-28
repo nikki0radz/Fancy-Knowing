@@ -1,3 +1,5 @@
+import {quizAllowance,quizLimit} from './allowances.mjs';
+export {quizAllowance,quizLimit} from './allowances.mjs';
 import {fail,hash,randomToken,DAY,localDay,normalize,validateSettings} from './core.mjs';
 import {budget} from './ai.mjs';
 import {triviaPack} from './trivia.mjs';
@@ -60,12 +62,6 @@ async function startPlayer(env,game,player){
  if(!game.lobby_mode||player.completed_at)return;
  const now=Date.now();await env.DB.prepare(`UPDATE ${playerTable(game)} SET started_at=?,question_started_at=?,elapsed_ms=COALESCE(elapsed_ms,0) WHERE id=? AND started_at IS NULL AND completed_at IS NULL`).bind(now,now,player.id).run();
 }
-export const quizLimit=env=>Number.isInteger(Number(env.QUIZ_DAILY_LIMIT))&&Number(env.QUIZ_DAILY_LIMIT)>0?Number(env.QUIZ_DAILY_LIMIT):30;
-export async function quizAllowance(env,user){
- if(env.QUIZ_LIMITS_ENABLED==='false')return {limited:false,limit:null,remaining:null,day:localDay()};
- const row=await env.DB.prepare('SELECT count,expires_at FROM budgets WHERE key=?').bind(`completed-games:${user.id}:${localDay()}`).first(),used=row&&row.expires_at>Date.now()?row.count:0;
- return {limited:true,limit:quizLimit(env),used,remaining:Math.max(0,quizLimit(env)-used),day:localDay()};
-}
 export async function gamesApi(request,env,user,body){
  const url=new URL(request.url),path=url.pathname,method=request.method;
  const invite=path.match(/^\/api\/challenges\/([a-f0-9]{64})(?:\/(join|start|answer|verdict|comments))?$/);
@@ -108,13 +104,14 @@ export async function gamesApi(request,env,user,body){
   const lockKey='create-game:'+user.id,lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(lockKey,Date.now()+600000,Date.now()).first();if(!lock)fail('Your previous quiz is still being prepared.',409);
   const quotaKey=`completed-games:${user.id}:${localDay()}`;let reserved=false,created=false;
   try{
-   const authored=manual?manualQuiz(input):null,topic=manual?authored.topic:(await approveTopic(env,user,input.topic)).topic;const timerSeconds=validateSettings({timerSeconds:input.timerSeconds===undefined?(JSON.parse(user.settings).timerSeconds||0):input.timerSeconds}).timerSeconds;if(input.lobby!==undefined&&typeof input.lobby!=='boolean')fail('Choose a valid lobby setting.');
+   const authored=manual?manualQuiz(input):null;let topic=manual?authored.topic:input.topic;const aiEnv={...env,AI_USAGE_USER_ID:user.id,AI_USAGE_ACTION:'quiz',AI_USAGE_OPERATION:input.requestId};const timerSeconds=validateSettings({timerSeconds:input.timerSeconds===undefined?(JSON.parse(user.settings).timerSeconds||0):input.timerSeconds}).timerSeconds;if(input.lobby!==undefined&&typeof input.lobby!=='boolean')fail('Choose a valid lobby setting.');
    let invitee=null;if(input.friendId!==undefined){if(input.kind!=='challenge'||typeof input.friendId!=='string')fail('Choose a friend for this challenge.');const [low,high]=[user.id,input.friendId].sort();const friend=await env.DB.prepare('SELECT user_low FROM friendships WHERE user_low=? AND user_high=? AND accepted_at IS NOT NULL').bind(low,high).first();if(!friend)fail('Add and accept this friend first.',403);invitee=input.friendId}
    const friendIds=input.friendIds|| (invitee?[invitee]:[]);await validateFriendIds(env,user,friendIds);const group=input.kind==='challenge';
    if(manual)await budget(env,`manual-quizzes:${user.id}:${localDay()}`,100,Date.now()+2*DAY);
    if(!manual&&env.QUIZ_LIMITS_ENABLED!=='false'){await budget(env,`quiz-preparation:${user.id}:${Math.floor(Date.now()/3600000)}`,30,Date.now()+2*3600000,'You’ve started 30 quiz preparations this hour. Please try again next hour.');
-   await budget(env,quotaKey,quizLimit(env),Date.now()+2*DAY,'Uh oh, you’re out of quizzes for today. Come again tomorrow! You can still play and share existing quizzes.');reserved=true;}
-   const count=input.count,answerCount=JSON.parse(user.settings).answerCount||4,{questions,vectors}=(authored||await triviaPack(env,user,topic,input.difficulty,count,answerCount)),id=crypto.randomUUID(),now=Date.now(),token=input.kind==='challenge'?randomToken():null;
+   await budget(env,quotaKey,(await quizAllowance(env,user)).limit,Date.now()+2*DAY,'Uh oh, you’re out of quizzes for today. Come again tomorrow! You can still play and share existing quizzes.');reserved=true;}
+   if(!manual)topic=(await approveTopic(aiEnv,user,input.topic)).topic;
+   const count=input.count,answerCount=JSON.parse(user.settings).answerCount||4,{questions,vectors}=(authored||await triviaPack(aiEnv,user,topic,input.difficulty,count,answerCount)),id=crypto.randomUUID(),now=Date.now(),token=input.kind==='challenge'?randomToken():null;
    const commands=[env.DB.prepare('INSERT INTO trivia_games(id,creator_id,request_id,kind,invite_token,topic,difficulty,question_count,created_at,invitee_id,group_mode,timer_seconds,lobby_mode,manual) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,user.id,input.requestId,input.kind,token,topic,input.difficulty,count,now,null,group?1:0,timerSeconds,input.lobby||manual?1:0,manual?1:0),env.DB.prepare(`INSERT INTO ${group?'quiz_participants':'trivia_players'}(id,game_id,seat,user_id,name,joined_at) VALUES (?,?,'host',?,?,?)`).bind(crypto.randomUUID(),id,user.id,JSON.parse(user.profile||'{}').name||'You',now)];
    for(let index=0;index<questions.length;index++){
     const q=questions[index],fingerprint=await hash(normalize(q.q)+':game:'+id),qid=crypto.randomUUID();
@@ -140,7 +137,7 @@ async function verdict(env,game,player){
  if(!player.user_id||game.manual)return {verdict:fallbackVerdict(player.score,game.question_count)};
  if(player.verdict)return {verdict:player.verdict};
  const key='verdict:'+player.id,now=Date.now();const lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(key,now+65000,now).first();if(!lock)return {verdict:fallbackVerdict(player.score,game.question_count)};
- try{const line=await scoreVerdict(env,player.score,game.question_count,game.topic);await env.DB.prepare(`UPDATE ${playerTable(game)} SET verdict=COALESCE(verdict,?) WHERE id=?`).bind(line,player.id).run();return {verdict:line}}finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(key).run()}
+ try{const line=await scoreVerdict({...env,AI_USAGE_USER_ID:player.user_id,AI_USAGE_ACTION:'score_comment',AI_USAGE_OPERATION:game.id},player.score,game.question_count,game.topic);await env.DB.prepare(`UPDATE ${playerTable(game)} SET verdict=COALESCE(verdict,?) WHERE id=?`).bind(line,player.id).run();return {verdict:line}}finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(key).run()}
 }
 
 // Participants see discussion only after finishing: comments may contain answers.

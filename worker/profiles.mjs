@@ -5,6 +5,7 @@ export const SUBJECTS=['Chemistry','Biology','History','Poetry','Art','Maths','P
 export function displayName(value){if(typeof value!=='string')fail('What would you like us to call you?');const name=value.trim().replace(/\s+/g,' ');if(!name||name.length>60||/[\p{Cc}\p{Cf}<>]/u.test(name))fail('Use a name of up to 60 characters.');return name}
 export function customTopicText(value){if(typeof value!=='string')fail('Type a subject you want to learn about.');const text=value.trim().replace(/\s+/g,' ');if(text.length<2||text.length>120||!/[\p{L}]/u.test(text)||/[\p{Cc}\p{Cf}<>]/u.test(text)||/(.)\1{6}/u.test(text))fail('Try a recognisable subject, such as marine biology focused on sharks.');return text}
 export async function approveTopic(env,user,value){
+ env={...env,AI_USAGE_USER_ID:user.id,AI_USAGE_ACTION:env.AI_USAGE_ACTION||'topic_check'};
  const text=customTopicText(value);if(['general knowledge','mixed topics'].includes(normalize(text)))return {topic:'General knowledge'};const builtIn=SUBJECTS.find(t=>normalize(t)===normalize(text));if(builtIn)return {topic:builtIn};
  const cached=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? AND lower(topic)=lower(?)').bind(user.id,text).first();if(cached)return {topic:text};
  await budget(env,`topics:${user.id}:${localDay()}`,20,Date.now()+2*DAY,'You’ve checked 20 new custom topics today. You can still use previously approved topics or choose one from the list.');

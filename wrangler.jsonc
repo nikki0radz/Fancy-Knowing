@@ -5,7 +5,7 @@
   "compatibility_date": "2026-10-26",
   "workers_dev": true,
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
-  "vars": { "OPENAI_MODEL": "gpt-4.1-mini", "QUIZ_LIMITS_ENABLED": "false", "QUIZ_DAILY_LIMIT": "5", "APP_URL": "https://fancy-knowing.nikki0radz.workers.dev" },
+  "vars": { "OPENAI_MODEL": "gpt-4.1-mini", "QUIZ_LIMITS_ENABLED": "true", "QUIZ_DAILY_LIMIT": "5", "APP_URL": "https://fancy-knowing.nikki0radz.workers.dev" },
   "d1_databases": [{
     "binding": "DB", "database_name": "fancy-knowing-db",
     "database_id": "f2b9470b-8ca7-4f75-9493-3ac2bfc3bf8b",

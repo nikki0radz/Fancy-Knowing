@@ -73,3 +73,20 @@ Password recovery and confirmed email changes are implemented. Configure the ema
 Node.js 22 or newer. Run `npm install`, copy `.dev.vars.example` to ignored `.dev.vars`, fill the two secrets privately, run `npm run build`, `npm run db:local`, then `npm run dev`. For local-only D1 testing, use any valid UUID as the local database ID and keep that change uncommitted. Live deployment must use the real ID.
 
 Run `npm test`. The integration suite uses an isolated local D1 database and mocked OpenAI responses; it does not use the live API or spend API credit.
+
+## Administrator and extra quiz requests
+
+The normal AI quiz generation limit is enabled at **5 per UK calendar day**. Opening or playing an existing quiz, joining a friend's challenge and writing a handmade quiz do not consume this generation allowance. Daily discoveries, prepared questions, topic approval, score comments and Dive deeper use separate AI calls; the quiz allowance is not a total API spending cap.
+
+To activate your own administrator account:
+
+1. Sign into Fancy Knowing with your own account.
+2. Open **Settings → My account → Account reference**, then **Copy account ID**.
+3. In the `fancy-knowing` Cloudflare Worker, add `ADMIN_USER_ID` as a **Secret**, with exactly that account ID. Using a Secret keeps this binding through later code deployments. Save/deploy, then refresh the app.
+4. **Settings → Admin & usage** now appears only for that account. Never use an email address, display name or permanent friend username for this variable.
+
+There is no browser-side way to promote an account. The server checks the configured immutable ID for every admin request. Leave this variable unset to keep admin access disabled.
+
+At zero allowance, a person can request five extra generations. The administrator approves or declines in Admin & usage, or grants 1–20 extra generations directly to an account. Approvals are replay-safe, per account and valid only until midnight Europe/London. No reusable unlock code or payment is required.
+
+Admin & usage includes historical successful AI/handmade quiz counts, today's successful AI quiz count, and 30 days of future API usage metadata grouped by feature and model. Token telemetry begins with this release; it cannot reconstruct previous token spend or failed generation costs. It stores token counts, request status, search counts and operation IDs, not prompts, replies, passwords or API keys. Search counts are marked inferred when the provider does not report exact billable tool usage. Use OpenAI's usage dashboard for final charges, discounts, search-content charges and any usage whose token data is missing.

@@ -18,7 +18,7 @@ showGameSetup=function(kind='solo',friend=null){
  quizFlow={owner:user.id,kind,topic:'General knowledge',difficulty:'medium',count:5,timerSeconds:0,manual:false};flowStep=0;flowTopicOpen=false;flowTopicResult=null;flowTopicChecking=false;flowTopicRequest++;page('gameSetup');$('#gameSetup').innerHTML='<p class="flow-background-note">A little curiosity is taking shape.</p>';visibleRoute={page:'gameSetup',kind};renderQuizFlow();loadFlowTopics();
 };
 function openHandmadeQuiz(){
- showGameSetup('challenge');quizFlow.manual=true;quizFlow.topic='';quizFlow.questions=[];flowQuestionEdit=null;flowQuestionDraft=null;
+ showGameSetup('challenge',null,true);quizFlow.manual=true;quizFlow.topic='';quizFlow.questions=[];flowQuestionEdit=null;flowQuestionDraft=null;
  try{const saved=JSON.parse(localStorage.getItem('fk-handmade:'+user.id)||'null');if(saved&&Array.isArray(saved.questions)){quizFlow.topic=String(saved.title||'').slice(0,120);quizFlow.questions=saved.questions.filter(q=>q&&typeof q.q==='string'&&Array.isArray(q.options)&&q.options.every(o=>typeof o==='string')).slice(0,20);if(saved.editor&&typeof saved.editor.q==='string'&&Array.isArray(saved.editor.options)){flowQuestionDraft=saved.editor;flowQuestionEdit=Number.isInteger(saved.editorIndex)?saved.editorIndex:null;}quizFlow.timerSeconds=Number.isInteger(saved.timerSeconds)?saved.timerSeconds:0}}catch{}
  renderQuizFlow();
 }

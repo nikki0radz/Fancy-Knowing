@@ -1,3 +1,4 @@
+import {isAdmin} from './allowances.mjs';
 import { fail, username, password, passwordHash, randomToken, hash, equal, DAY, SESSION_DAYS, randomFriendUsername } from './core.mjs';
 import { budget } from './ai.mjs';
 import { emailReady, sendEmail, deliverWelcome } from './mail.mjs';
@@ -6,7 +7,7 @@ export const sessionCookie=(token,age=SESSION_DAYS*86400)=>`${COOKIE}=${token}; 
 export const json=(value,status=200,headers={})=>Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
 export function tokenFrom(request){return request.headers.get('Cookie')?.split(';').map(s=>s.trim()).find(s=>s.startsWith(COOKIE+'='))?.slice(COOKIE.length+1)||''}
 export async function userFor(request,env){const token=tokenFrom(request);if(!/^[a-f0-9]{64}$/.test(token))fail('Please sign in.',401);const row=await env.DB.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').bind(await hash(token),Date.now()).first();if(!row)fail('Please sign in again.',401);return row}
-export const publicUser=u=>({id:u.id,avatar:u.avatar||null,username:u.friend_username||null,email:u.email||null,emailVerified:!!u.email_verified_at,legacyUsername:u.email?null:u.username,profile:JSON.parse(u.profile||'{}'),settings:JSON.parse(u.settings)});
+export const publicUser=(u,env={})=>({id:u.id,isAdmin:isAdmin(env,u),avatar:u.avatar||null,username:u.friend_username||null,email:u.email||null,emailVerified:!!u.email_verified_at,legacyUsername:u.email?null:u.username,profile:JSON.parse(u.profile||'{}'),settings:JSON.parse(u.settings)});
 export function email(value){if(typeof value!=='string')fail('Enter your email address.');const address=value.trim().toLowerCase();if(address.length>254||! /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(address)||address.startsWith('.')||address.includes('..'))fail('Enter a valid email address.');return address}
 export function mailReady(env){return emailReady(env)}
 function appOrigin(env){let url;try{url=new URL(env.APP_URL)}catch{fail('Password recovery is not available yet. Please try again later.',503)}if(url.protocol!=='https:'||url.username||url.password)fail('Password recovery is not available yet. Please try again later.',503);return url.origin}
@@ -44,7 +45,7 @@ export async function signin(request,env,path,input,ctx){
  }
  const token=randomToken();await env.DB.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES (?,?,?)').bind(await hash(token),user.id,Date.now()+SESSION_DAYS*DAY).run();
  if(signup&&ctx?.waitUntil)ctx.waitUntil(deliverWelcome(env,user.id));
- return json({user:publicUser(user)},200,{'Set-Cookie':sessionCookie(token)});
+ return json({user:publicUser(user,env)},200,{'Set-Cookie':sessionCookie(token)});
 }
 export async function forgotPassword(request,env,input){
  if(!mailReady(env))fail('Password recovery is not available yet. Please try again later.',503);

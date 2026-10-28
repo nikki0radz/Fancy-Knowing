@@ -1,3 +1,4 @@
+import {recordAIUsage} from './usage.mjs';
 import { fail, responseText, citations, validateQuestion, hash, normalize, DAY, localDay, validateAnswerKey } from './core.mjs';
 import {shuffleAnswers,validateFormat,metricQuestion} from './quiz.mjs';
 import {embed,loadMemory,memoryText,nearQuestions,repeatedFact,briefMemory,EMBEDDING_MODEL} from './memory.mjs';
@@ -5,9 +6,9 @@ export async function openai(env, body) {
  if(!env.OPENAI_API_KEY) fail('The AI key has not been added to Cloudflare yet.',503);
  let response;
  try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:env.OPENAI_MODEL||'gpt-4.1-mini',store:false,...body}),signal:AbortSignal.timeout(55000)}); }
- catch { fail('The AI took too long to reply. Please try again.',504); }
- if(!response.ok) { console.error('OpenAI request failed', response.status, response.headers.get('x-request-id')); fail(response.status===429?'The AI is busy or its API allowance needs checking. Try again shortly.':'The AI connection needs checking in Cloudflare.',502); }
- const data=await response.json(); if(data.status!=='completed'||!responseText(data))fail('The AI could not finish its answer. Please try again.',502); return data;
+ catch { await recordAIUsage(env,{model:body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:0});fail('The AI took too long to reply. Please try again.',504); }
+ if(!response.ok) { await recordAIUsage(env,{model:body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:response.status});console.error('OpenAI request failed', response.status, response.headers.get('x-request-id')); fail(response.status===429?'The AI is busy or its API allowance needs checking. Try again shortly.':'The AI connection needs checking in Cloudflare.',502); }
+ const data=await response.json();await recordAIUsage(env,{data,model:data.model||body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:response.status,requestId:response.headers.get('x-request-id')||undefined}); if(data.status!=='completed'||!responseText(data))fail('The AI could not finish its answer. Please try again.',502); return data;
 }
 export async function budget(env,key,max,expiresAt,message='That is enough requests for now. Please try again later.') {
  const row=await env.DB.prepare('INSERT INTO budgets(key,count,expires_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END WHERE expires_at<=? OR count<? RETURNING count').bind(key,expiresAt,Date.now(),Date.now(),Date.now(),max).first();
@@ -25,6 +26,7 @@ export function topicForDay(day,interests=[],includeEverything=false){
 }
 const qualitySchema={type:'object',additionalProperties:false,required:['accepted','reason','correctAnswer'],properties:{correctAnswer:{type:'string'},accepted:{type:'boolean'},reason:{type:'string'}}};
 export async function dailyQuestion(env,day,interests=[],answerCount=4,includeEverything=false,context={}){
+ env={...env,AI_USAGE_USER_ID:context.userId||env.AI_USAGE_USER_ID,AI_USAGE_ACTION:'discoveries',AI_USAGE_OPERATION:crypto.randomUUID()};
  const desiredFormat=context.format||(context.userId?['true_false','multiple_choice','multiple_choice','multiple_choice','multiple_choice'][parseInt((await hash(day+context.userId+context.slot)).slice(0,8),16)%5]:'multiple_choice'),wantedCount=desiredFormat==='multiple_choice'?answerCount:2;
  const selection=context.topic?{topic:context.topic,focused:true}:topicForDay(day,interests,includeEverything),chosenTopic=selection.focused?selection.topic:null;
  const baseKey=context.userId?`${day}:user:${(await hash(context.userId)).slice(0,24)}:slot:${context.slot||0}`:chosenTopic?day+':'+(await hash(normalize(chosenTopic))).slice(0,24):interests.length?day+':explore:'+(await hash(selection.topic)).slice(0,24):day;

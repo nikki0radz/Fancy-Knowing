@@ -1,3 +1,4 @@
+import {recordAIUsage} from './usage.mjs';
 import {fail,normalize} from './core.mjs';
 export const EMBEDDING_MODEL='text-embedding-3-small';
 export const EMBEDDING_SIZE=256;
@@ -5,9 +6,9 @@ export function memoryText(q){return `${q.q}\nAnswer: ${q.options[q.correct]}\nF
 export function cosine(a,b){if(a.length!==b.length)return 0;let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i]}return aa&&bb?dot/Math.sqrt(aa*bb):0}
 export async function embed(env,texts){
  if(!env.OPENAI_API_KEY)fail('The AI key has not been added to Cloudflare yet.',503);
- let response;try{response=await fetch('https://api.openai.com/v1/embeddings',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:EMBEDDING_MODEL,dimensions:EMBEDDING_SIZE,input:texts,encoding_format:'float'}),signal:AbortSignal.timeout(30000)})}catch{fail('The question memory check took too long. Try again.',504)}
- if(!response.ok)fail('The question memory connection needs checking. Try again shortly.',502);
- const data=await response.json(),items=data.data;
+ let response;try{response=await fetch('https://api.openai.com/v1/embeddings',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:EMBEDDING_MODEL,dimensions:EMBEDDING_SIZE,input:texts,encoding_format:'float'}),signal:AbortSignal.timeout(30000)})}catch{await recordAIUsage(env,{model:EMBEDDING_MODEL,endpoint:'embeddings',status:0});fail('The question memory check took too long. Try again.',504)}
+ if(!response.ok){await recordAIUsage(env,{model:EMBEDDING_MODEL,endpoint:'embeddings',status:response.status});fail('The question memory connection needs checking. Try again shortly.',502)}
+ const data=await response.json(),items=data.data;await recordAIUsage(env,{data,model:data.model||EMBEDDING_MODEL,endpoint:'embeddings',status:response.status,requestId:response.headers.get('x-request-id')||undefined});
  if(!Array.isArray(items)||items.length!==texts.length)fail('The question memory could not be checked.',502);
  const vectors=Array(texts.length);for(const item of items){if(!Number.isInteger(item.index)||item.index<0||item.index>=texts.length||vectors[item.index]||!Array.isArray(item.embedding)||item.embedding.length!==EMBEDDING_SIZE||item.embedding.some(n=>typeof n!=='number'||!Number.isFinite(n))||!item.embedding.some(n=>n!==0))fail('The question memory could not be checked.',502);vectors[item.index]=item.embedding}
  return vectors;

@@ -1,3 +1,4 @@
+import {allowanceApi} from './admin.mjs';
 import {pushApi,deliverPushOutbox} from './push.mjs';
 import { fail, hash, DAY, randomToken, validateSettings, validateNotificationWindow, notificationTimes, localDay, grade } from './core.mjs';
 import { budget, chatReply } from './ai.mjs';
@@ -23,7 +24,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts','quiz_comments','quiz_reactions'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts','quiz_comments','quiz_reactions','quiz_requests','quiz_grants','ai_usage'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
@@ -63,6 +64,7 @@ async function api(request,env,ctx){
  if(path.startsWith('/api/shared/'))fail('This shared question could not be found.',404);
  if(path.startsWith('/api/challenges/')){let visitor=null;try{visitor=await userFor(request,env)}catch(e){if(e.status!==401)throw e}return gamesApi(request,env,visitor,body)}
  const user=await userFor(request,env);
+ if(path==='/api/admin'||path.startsWith('/api/admin/')||path==='/api/quiz-requests')return allowanceApi(request,env,user,body);
  if(path.startsWith('/api/push/'))return pushApi(request,env,user,body);
  if(path==='/api/friends'||path.startsWith('/api/friends/'))return friendsApi(request,env,user,body);
  if(path==='/api/games'||path.startsWith('/api/games/')||path==='/api/notifications'||path.startsWith('/api/notifications/'))return gamesApi(request,env,user,body);
@@ -79,11 +81,11 @@ async function api(request,env,ctx){
   await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(tokenFrom(request))).run();return json({ok:true},200,{'Set-Cookie':sessionCookie('',0)});
  }
  if(method==='GET'&&path==='/api/my-profile'){
-  const stats=await env.DB.prepare('SELECT COUNT(DISTINCT question_id) discoveries,COUNT(*) attempts,SUM(correct) correct FROM attempts WHERE user_id=?').bind(user.id).first(),saved=await env.DB.prepare('SELECT COUNT(*) n FROM saved WHERE user_id=?').bind(user.id).first(),games=await env.DB.prepare('SELECT COUNT(*) n FROM (SELECT id FROM trivia_players WHERE user_id=? AND completed_at IS NOT NULL UNION ALL SELECT id FROM quiz_participants WHERE user_id=? AND completed_at IS NOT NULL)').bind(user.id,user.id).first(),friends=await env.DB.prepare('SELECT COUNT(*) n FROM friendships WHERE (user_low=? OR user_high=?) AND accepted_at IS NOT NULL').bind(user.id,user.id).first();return json({user:publicUser(user),stats:{discoveries:stats.discoveries,accuracy:stats.attempts?Math.round(stats.correct/stats.attempts*100):0,saved:saved.n,quizzes:games.n,friends:friends.n}});
+  const stats=await env.DB.prepare('SELECT COUNT(DISTINCT question_id) discoveries,COUNT(*) attempts,SUM(correct) correct FROM attempts WHERE user_id=?').bind(user.id).first(),saved=await env.DB.prepare('SELECT COUNT(*) n FROM saved WHERE user_id=?').bind(user.id).first(),games=await env.DB.prepare('SELECT COUNT(*) n FROM (SELECT id FROM trivia_players WHERE user_id=? AND completed_at IS NOT NULL UNION ALL SELECT id FROM quiz_participants WHERE user_id=? AND completed_at IS NOT NULL)').bind(user.id,user.id).first(),friends=await env.DB.prepare('SELECT COUNT(*) n FROM friendships WHERE (user_low=? OR user_high=?) AND accepted_at IS NOT NULL').bind(user.id,user.id).first();return json({user:publicUser(user,env),stats:{discoveries:stats.discoveries,accuracy:stats.attempts?Math.round(stats.correct/stats.attempts*100):0,saved:saved.n,quizzes:games.n,friends:friends.n}});
  }
  if(method==='GET'&&path==='/api/account/welcome-email')return json(await welcomeStatus(env,user),200,{'Cache-Control':'no-store'});
  if(method==='POST'&&path==='/api/account/welcome-email'){await budget(env,`welcome-retry:${user.id}:${localDay()}`,3,Date.now()+2*DAY,'You can retry your welcome email three times a day. Please try again tomorrow.');return json(await retryWelcome(env,user))}
- if(method==='GET'&&path==='/api/me')return json({user:publicUser(user)});
+ if(method==='GET'&&path==='/api/me')return json({user:publicUser(user,env)});
  if(method==='POST'&&path==='/api/account/email')return requestEmailChange(request,env,user,await body(request));
  if(method==='GET'&&path==='/api/quiz-topics'){
   const uses=await env.DB.prepare('SELECT topic,COUNT(*) AS uses FROM trivia_games WHERE creator_id=? AND manual=0 GROUP BY topic ORDER BY uses DESC').bind(user.id).all();const profile=JSON.parse(user.profile||'{}');const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=?').bind(user.id).all();
@@ -166,7 +168,7 @@ async function api(request,env,ctx){
     const key=`chat:${user.id}:${row.id}`,lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(key,Date.now()+65000,Date.now()).first();if(!lock)fail('Your previous reply is still being prepared.',409);
     try{
      const history=await env.DB.prepare('SELECT role,content FROM (SELECT id,role,content FROM chats WHERE user_id=? AND question_id=? ORDER BY id DESC LIMIT 16) ORDER BY id').bind(user.id,row.id).all();
-     const reply=await chatReply(env,q,history.results,message.trim(),JSON.parse(user.settings).units);
+     const reply=await chatReply({...env,AI_USAGE_USER_ID:user.id,AI_USAGE_ACTION:'dive_deeper',AI_USAGE_OPERATION:crypto.randomUUID()},q,history.results,message.trim(),JSON.parse(user.settings).units);
      await env.DB.batch([env.DB.prepare('INSERT INTO chats(user_id,question_id,role,content,created_at) VALUES (?,?,?,?,?)').bind(user.id,row.id,'user',message.trim(),Date.now()),env.DB.prepare('INSERT INTO chats(user_id,question_id,role,content,created_at) VALUES (?,?,?,?,?)').bind(user.id,row.id,'assistant',reply,Date.now())]);
      return json({reply});
     }finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(key).run()}
