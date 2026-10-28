@@ -1,3 +1,4 @@
+import {quizJobsApi,expireQuizJobs} from './jobs.mjs';
 import {bankApi,bankSubjects} from './bank.mjs';
 import {accountApi} from './account.mjs';
 import {allowanceApi} from './admin.mjs';
@@ -26,7 +27,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts','quiz_comments','quiz_reactions','quiz_requests','quiz_grants','ai_usage','topic_suggestions','request_messages','app_notifications','curated_questions'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts','quiz_comments','quiz_reactions','quiz_requests','quiz_grants','ai_usage','topic_suggestions','request_messages','app_notifications','curated_questions','quiz_jobs','quiz_job_calls'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
@@ -66,6 +67,7 @@ async function api(request,env,ctx){
  if(path.startsWith('/api/shared/'))fail('This shared question could not be found.',404);
  if(path.startsWith('/api/challenges/')){let visitor=null;try{visitor=await userFor(request,env)}catch(e){if(e.status!==401)throw e}return gamesApi(request,env,visitor,body)}
  const user=await userFor(request,env);
+ if(path==='/api/quiz-jobs'||path.startsWith('/api/quiz-jobs/'))return quizJobsApi(request,env,user,body);
  if(path==='/api/admin/question-bank')return bankApi(request,env,user,body);
  if(path==='/api/account'||path==='/api/account/walkthrough'||path==='/api/topic-suggestions')return accountApi(request,env,user,body);
  if(path==='/api/admin'||path.startsWith('/api/admin/')||path==='/api/quiz-requests'||path.startsWith('/api/request-threads/'))return allowanceApi(request,env,user,body);
@@ -196,6 +198,7 @@ export default {
  async scheduled(event,env,ctx){
   ctx.waitUntil((async()=>{
    if(!env.DB)return;
+   await expireQuizJobs(env);
    await deliverPushOutbox(env);
    await deliverPendingWelcomes(env);
    if(!env.OPENAI_API_KEY)return;

@@ -42,6 +42,7 @@ export async function accountApi(request,env,user,body){
   add(`DELETE FROM shared_questions WHERE question_id IN (SELECT question_id FROM trivia_game_questions WHERE game_id IN (${games}) AND json_extract((SELECT data FROM questions WHERE id=question_id),'$.origin')='manual')`,user.id);
   add(`DELETE FROM trivia_game_questions WHERE game_id IN (${games})`,user.id);
   add('UPDATE trivia_games SET invitee_id=NULL WHERE invitee_id=?',user.id);
+  add('DELETE FROM quiz_jobs WHERE user_id=?',user.id);
   add('DELETE FROM trivia_games WHERE creator_id=?',user.id);
   add('DELETE FROM friendships WHERE user_low=? OR user_high=?',user.id,user.id);
   add('UPDATE request_messages SET sender_id=NULL,sender_name=? WHERE sender_id=?', 'Deleted account',user.id);

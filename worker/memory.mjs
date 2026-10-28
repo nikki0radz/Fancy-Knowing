@@ -1,3 +1,4 @@
+import {quizJobCall} from './ai-job-cache.mjs';
 import {recordAIUsage} from './usage.mjs';
 import {fail,normalize} from './core.mjs';
 export const EMBEDDING_MODEL='text-embedding-3-small';
@@ -5,6 +6,7 @@ export const EMBEDDING_SIZE=256;
 export function memoryText(q){return `${q.q}\nAnswer: ${q.options[q.correct]}\nFact: ${q.concept}\nSubject: ${q.subtopic||q.topic}`}
 export function cosine(a,b){if(a.length!==b.length)return 0;let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i]}return aa&&bb?dot/Math.sqrt(aa*bb):0}
 export async function embed(env,texts){
+ if(env.AI_JOB)return quizJobCall(env,'embeddings',{texts},()=>embed({...env,AI_JOB:null},texts));
  if(!env.OPENAI_API_KEY)fail('The AI key has not been added to Cloudflare yet.',503);
  let response;try{response=await fetch('https://api.openai.com/v1/embeddings',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:EMBEDDING_MODEL,dimensions:EMBEDDING_SIZE,input:texts,encoding_format:'float'}),signal:AbortSignal.timeout(30000)})}catch{await recordAIUsage(env,{model:EMBEDDING_MODEL,endpoint:'embeddings',status:0});fail('The question memory check took too long. Try again.',504)}
  if(!response.ok){await recordAIUsage(env,{model:EMBEDDING_MODEL,endpoint:'embeddings',status:response.status});fail('The question memory connection needs checking. Try again shortly.',502)}
@@ -26,11 +28,12 @@ export async function loadMemory(env,userId){
  OR EXISTS(SELECT 1 FROM daily_ready r WHERE r.user_id=? AND r.question_id=q.id)
  OR EXISTS(SELECT 1 FROM trivia_game_questions g JOIN quiz_participants p ON p.game_id=g.game_id WHERE p.user_id=? AND g.question_id=q.id)
  ) ORDER BY seen_at DESC,q.id DESC`).bind(userId,userId,userId,userId,userId,userId,userId,userId).all();
- const records=rows.results.map(row=>({id:row.id,...JSON.parse(row.data),seenAt:row.seen_at,vector:row.model===EMBEDDING_MODEL&&row.vector?JSON.parse(row.vector):null}));
+ let selected=rows.results;if(env.AI_JOB){const state=env.AI_JOB.state;if(!state.memoryIds)state.memoryIds=selected.map(q=>q.id);const byId=new Map(selected.map(q=>[q.id,q]));selected=state.memoryIds.map(id=>byId.get(id)).filter(Boolean)}
+ const records=selected.map(row=>({id:row.id,...JSON.parse(row.data),seenAt:row.seen_at,vector:row.model===EMBEDDING_MODEL&&row.vector?JSON.parse(row.vector):null}));
  const missing=records.filter(q=>!q.vector);
  for(let start=0;start<missing.length;start+=64){
   const batch=missing.slice(start,start+64),vectors=await embed(env,batch.map(memoryText));
-  await env.DB.batch(batch.map((q,i)=>env.DB.prepare('INSERT INTO question_embeddings(question_id,model,vector) VALUES (?,?,?) ON CONFLICT(question_id) DO UPDATE SET model=excluded.model,vector=excluded.vector').bind(q.id,EMBEDDING_MODEL,JSON.stringify(vectors[i]))));batch.forEach((q,i)=>q.vector=vectors[i]);
+  await env.DB.batch(batch.map((q,i)=>env.DB.prepare('INSERT INTO question_embeddings(question_id,model,vector) VALUES (?,?,?) ON CONFLICT(question_id) DO UPDATE SET model=excluded.model,vector=excluded.vector').bind(q.id,EMBEDDING_MODEL,JSON.stringify(vectors[i]))));batch.forEach((q,i)=>q.vector=vectors[i]);if(env.AI_MEMORY_WARM_ONCE&&start+batch.length<missing.length){const pause=new Error('Question memory prepared');pause.quizMemoryWarmed=true;throw pause}
  }
  return records;
 }

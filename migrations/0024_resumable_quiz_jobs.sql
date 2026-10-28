@@ -1,0 +1,3 @@
+CREATE TABLE quiz_jobs(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,request_id TEXT NOT NULL,input TEXT NOT NULL,state TEXT NOT NULL DEFAULT '{}',status TEXT NOT NULL DEFAULT 'preparing' CHECK(status IN ('preparing','ready','failed')),game_id TEXT REFERENCES trivia_games(id) ON DELETE SET NULL,error TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(user_id,request_id));
+CREATE UNIQUE INDEX quiz_jobs_active ON quiz_jobs(user_id) WHERE status='preparing';
+CREATE TABLE quiz_job_calls(job_id TEXT NOT NULL REFERENCES quiz_jobs(id) ON DELETE CASCADE,position INTEGER NOT NULL,kind TEXT NOT NULL,request_hash TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(job_id,position));

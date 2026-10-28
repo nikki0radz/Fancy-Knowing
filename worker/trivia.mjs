@@ -6,8 +6,8 @@ export function formatSchema(answerCount,format){const schema=schemaFor(format==
 const verdictSchema=count=>({type:'object',additionalProperties:false,required:['checks'],properties:{checks:{type:'array',minItems:count,maxItems:count,items:{type:'object',additionalProperties:false,required:['accepted','correctAnswer','reason'],properties:{accepted:{type:'boolean'},correctAnswer:{type:'string'},reason:{type:'string'}}}}}});
 export async function triviaPack(env,user,topic,difficulty,count,answerCount=4,context={}){
  const history=await loadMemory(env,user.id),accepted=[],vectors=[],rejected=[];
- const plan=Array.from({length:count},(_,i)=>count===1?(randomInt(5)===0?'true_false':'multiple_choice'):i%5===1?'true_false':'multiple_choice');
- for(let i=plan.length-1;i>0;i--){const j=randomInt(i+1);[plan[i],plan[j]]=[plan[j],plan[i]]}
+ const plan=context.plan?[...context.plan]:Array.from({length:count},(_,i)=>count===1?(randomInt(5)===0?'true_false':'multiple_choice'):i%5===1?'true_false':'multiple_choice');
+ if(!context.plan)for(let i=plan.length-1;i>0;i--){const j=randomInt(i+1);[plan[i],plan[j]]=[plan[j],plan[i]]}
  const pendingFormats=[...plan],pendingTopics=context.topicPlan?[...context.topicPlan]:null;
  for(let attempt=0;attempt<3&&accepted.length<count;attempt++){
   const remaining=count-accepted.length,formats=[...pendingFormats],topicPlan=pendingTopics?[...pendingTopics]:null,previous=[...history.slice(0,50).map(briefMemory),...accepted.map(briefMemory)];

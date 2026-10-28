@@ -1,13 +1,15 @@
+import {quizJobCall} from './ai-job-cache.mjs';
 import {recordAIUsage} from './usage.mjs';
 import { fail, responseText, citations, validateQuestion, hash, normalize, DAY, localDay, validateAnswerKey } from './core.mjs';
 import {shuffleAnswers,validateFormat,metricQuestion} from './quiz.mjs';
 import {embed,loadMemory,memoryText,nearQuestions,repeatedFact,briefMemory,EMBEDDING_MODEL} from './memory.mjs';
 export async function openai(env, body) {
+ if(env.AI_JOB)return quizJobCall(env,'responses',body,()=>openai({...env,AI_JOB:null},body));
  if(!env.OPENAI_API_KEY) fail('The AI key has not been added to Cloudflare yet.',503);
  let response;
  try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:env.OPENAI_MODEL||'gpt-4.1-mini',store:false,...body}),signal:AbortSignal.timeout(55000)}); }
  catch { await recordAIUsage(env,{model:body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:0});fail('The AI took too long to reply. Please try again.',504); }
- if(!response.ok) { await recordAIUsage(env,{model:body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:response.status});console.error('OpenAI request failed', response.status, response.headers.get('x-request-id')); fail(response.status===429?'The AI is busy or its API allowance needs checking. Try again shortly.':'The AI connection needs checking in Cloudflare.',502); }
+ if(!response.ok) { await recordAIUsage(env,{model:body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:response.status});let detail={};try{detail=(await response.json()).error||{}}catch{}console.error('OpenAI request failed',{status:response.status,code:detail.code||null,type:detail.type||null,param:detail.param||null,requestId:response.headers.get('x-request-id')});const message=response.status===401?'The OpenAI API key was rejected. Nicole needs to check the key in Cloudflare.':response.status===403?'The OpenAI project does not allow this request. Nicole needs to check its model permissions.':response.status===429?(detail.code==='insufficient_quota'?'The OpenAI API project has run out of credit. Nicole needs to check API billing.':'OpenAI is limiting requests right now. Give it a moment and try again.'):response.status>=500?'OpenAI is having trouble right now. Please try again shortly.':'OpenAI rejected the quiz request'+(detail.code?' ('+String(detail.code).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,60)+')':'')+'. Nicole needs to check the AI model and request settings.';fail(message,502); }
  const data=await response.json();await recordAIUsage(env,{data,model:data.model||body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:response.status,requestId:response.headers.get('x-request-id')||undefined}); if(data.status!=='completed'||!responseText(data))fail('The AI could not finish its answer. Please try again.',502); return data;
 }
 export async function budget(env,key,max,expiresAt,message='That is enough requests for now. Please try again later.') {

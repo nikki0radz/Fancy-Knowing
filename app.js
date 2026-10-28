@@ -20,7 +20,7 @@ function applyTheme(value){renderHeaderProfile();theme=value;FancyDesign.apply({
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').hidden=true,4000)}
 async function api(path,options={}){
  let response;try{response=await fetch('/api'+path,{credentials:'same-origin',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers},body:options.body?JSON.stringify(options.body):undefined})}catch{throw new Error('Could not connect. Check your internet and try again.')}
- let data;try{data=await response.json()}catch{throw new Error('The backend is not connected at this address yet. Open the Cloudflare Worker address after setup.')}
+ let data;try{data=await response.json()}catch{throw new Error(response.status>=500?'The server connection stopped before it could reply. Please try again.':'The server returned an unreadable response. Refresh the app and try again.')}
  if(!response.ok){const e=new Error(data.error||'Something went wrong. Please try again.');e.status=response.status;if(response.status===401&&user){clearAccount();showAuth()}throw e}return data;
 }
 function rememberNavigation(route){
