@@ -42,6 +42,18 @@ body:has(#home:not([hidden])) #headerprofile{display:none}
 #bank.history-view .bankitem-footer .textbtn{margin-left:auto;border:1px solid var(--line);border-radius:99px;padding:8px 11px;background:var(--input)}
 
 /* A visible recent archive, with the rest one tap away. */
+/* Centred Quiz spotlight: a wide quiz tile, with two smaller routes beneath. */
+#home .dashboard-actions{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0 0}
+#home .dashboard-actions>button{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:21px 15px;gap:12px}
+#home .dashboard-actions strong{display:block;max-width:none;min-height:0;font-size:calc(15px * var(--font-scale,1));line-height:1.35}
+#home .dashboard-actions small{display:block;max-width:180px;color:var(--muted);font-size:calc(12px * var(--font-scale,1));line-height:1.5}
+#home .dashboard-actions>button:not(#homequiz){justify-content:flex-start}
+#home .dashboard-actions>button:not(#homequiz) strong{display:flex;align-items:center;justify-content:center;min-height:2.7em}
+#home .dashboard-actions #homequiz{grid-column:1/-1;grid-row:1;border-color:var(--accent);padding:26px 20px;gap:10px}
+#home .dashboard-actions #homequiz strong{font-size:calc(25px * var(--font-scale,1));letter-spacing:-.5px}
+#home .dashboard-actions #homequiz .dashboard-action-bubble{width:70px;height:70px;font-size:47px}
+#home .dashboard-actions .dashboard-action-bubble,#home .dashboard-actions>button:nth-child(2) .dashboard-action-bubble,#home .dashboard-actions>button:nth-child(3) .dashboard-action-bubble{width:48px;height:48px;font-size:32px}
+@media(max-width:370px){#home .dashboard-actions>button{padding:19px 12px}#home .dashboard-actions strong{font-size:calc(14px * var(--font-scale,1))}#home .dashboard-actions small{font-size:calc(11px * var(--font-scale,1))}}
 .personal-journal .journal-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:25px}
 .journal-toolbar>strong{font-size:17px}
 .journal-identity{display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--line);padding-bottom:23px;margin-bottom:26px}
