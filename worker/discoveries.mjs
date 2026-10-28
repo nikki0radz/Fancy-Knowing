@@ -1,3 +1,4 @@
+import {bankPack,bankSubjects} from './bank.mjs';
 import {fail,normalize} from './core.mjs';
 import {dailyQuestion} from './ai.mjs';
 import {loadMemory} from './memory.mjs';
@@ -24,6 +25,7 @@ export async function assignDiscovery(env,user,day,slot){
   const settings=JSON.parse(user.settings),profile=JSON.parse(user.profile||'{}');
   const history=await env.DB.prepare('SELECT subject FROM daily_assignments WHERE user_id=? ORDER BY created_at,day,slot').bind(user.id).all();
   const selection=chooseSubject(profile.interests||[],profile.includeEverything===true,history.results);
+  if((await bankSubjects(env,user)).length){const pack=await bankPack(env,user,selection.topic,null,1)||await bankPack(env,user,'General knowledge',null,1),q=pack.questions[0],id=crypto.randomUUID();await env.DB.batch([env.DB.prepare('INSERT INTO questions(id,day,fingerprint,concept,data,created_at) VALUES (?,?,?,?,?,?)').bind(id,day+':bank:'+id,id,q.concept,JSON.stringify(q),Date.now()),env.DB.prepare('INSERT INTO daily_assignments(user_id,day,slot,question_id,subject,created_at) VALUES (?,?,?,?,?,?)').bind(user.id,day,slot,id,q.topic,Date.now())]);return await assignedQuestion(env,user.id,day,slot)}
   const memory=await loadMemory(env,user.id);
   const row=await dailyQuestion(env,day,profile.interests||[],4,profile.includeEverything===true,{userId:user.id,slot,topic:selection.topic,memory});
   await env.DB.prepare('INSERT INTO daily_assignments(user_id,day,slot,question_id,subject,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day,slot) DO NOTHING').bind(user.id,day,slot,row.id,selection.topic,Date.now()).run();

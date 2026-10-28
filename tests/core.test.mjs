@@ -181,3 +181,11 @@ test('journal calendar groups by local dates across daylight saving and keeps ze
  const {summarizeJournal}=await import('../worker/profiles.mjs');const now=Date.parse('2026-10-26T12:00:00Z');
  const rows=[{topic:'Nature',correct:1,created_at:Date.parse('2026-10-24T23:30:00Z')},{topic:'Nature',correct:0,created_at:Date.parse('2026-10-25T23:30:00Z')},{topic:'Nature',correct:1,created_at:Date.parse('2026-10-19T23:30:00Z')},{topic:'Nature',correct:1,created_at:now+1}];const j=summarizeJournal(rows,'Europe/London',now);assert.equal(j.week[0].day,'2026-10-20');assert.equal(j.week.find(d=>d.day==='2026-10-25').count,2);assert.equal(j.week.find(d=>d.day==='2026-10-20').count,1);assert.equal(j.totalWeek,3);assert.equal(j.answered,3);assert.equal(j.correct,2);assert.equal(j.activeDays,2);assert.equal(j.strengths.length,0);
 });
+
+test('Excel CSV imports preserve commas, quoted text, multiline cells and Ready-only status',async()=>{
+ const {readFile}=await import('node:fs/promises');const text=await readFile(new URL('../bank-ui.js',import.meta.url),'utf8');const parse=Function(text.split('async function openBankManager')[0]+';return parseBankCSV')();
+ const header='Question ID,Question,Correct answer,Wrong answer 1,Wrong answer 2,Wrong answer 3,Type,Category,Topic,Difficulty,Explanation,Reference / source URL,Status,Fact ID';
+ const csv=header+'\r\nB1,"Which bird, exactly?",Robin,Shark,Cat,Dog,Multiple choice,Nature,Birds,Easy,"A robin says ""hello"".\nTwo lines.",https://example.test,Ready,bird-robin\r\nB2,,,,,,,,,,,,Draft,';
+ const rows=parse(csv);assert.equal(rows.length,2);assert.equal(rows[0].q,'Which bird, exactly?');assert.equal(rows[0].explanation,'A robin says "hello".\nTwo lines.');assert.equal(rows[1].enabled,false);
+ assert.throws(()=>parse(header+'\nB1,"unfinished'),/unfinished/);assert.throws(()=>parse('Question,Answer\na,b'),/Missing column/);
+});

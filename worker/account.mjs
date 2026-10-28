@@ -1,3 +1,4 @@
+import {notice} from './admin.mjs';
 import {fail,passwordHash,equal,DAY,localDay} from './core.mjs';
 import {budget} from './ai.mjs';
 import {json,sessionCookie} from './auth.mjs';
@@ -17,7 +18,10 @@ export async function accountApi(request,env,user,body){
    const previous=await env.DB.prepare('SELECT user_id FROM topic_suggestions WHERE id=?').bind(input.id).first();
    if(previous){if(previous.user_id!==user.id)fail('Please reopen the suggestion box.',409);return json({ok:true})}
    await budget(env,`topic-suggestions:${user.id}:${localDay()}`,10,Date.now()+2*DAY,'Your suggestion box is full for today. Try again tomorrow.');
-   await env.DB.prepare('INSERT INTO topic_suggestions(id,user_id,topic,note,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING').bind(input.id,user.id,topic,note,Date.now()).run();return json({ok:true});
+   const name=JSON.parse(user.profile||'{}').name||user.friend_username||'A curious person',now=Date.now(),commands=[env.DB.prepare('INSERT INTO topic_suggestions(id,user_id,topic,note,created_at) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING').bind(input.id,user.id,topic,note,now)];
+   if(note)commands.push(env.DB.prepare("INSERT INTO request_messages(id,owner_id,kind,request_id,sender_id,sender_name,text,created_at) VALUES (?,?,'topic',?,?,?,?,?) ON CONFLICT(id) DO NOTHING").bind(input.id,user.id,input.id,user.id,name,note,now));
+   if(env.ADMIN_USER_ID)commands.push(notice(env,env.ADMIN_USER_ID,'admin_request',name+' suggested a topic: '+topic,note||'A new idea for the question bank.','topic',input.id,'topic:'+input.id));
+   await env.DB.batch(commands);return json({ok:true});
   }
   if(!isAdmin(env,user))fail('Only the app administrator can read suggestions.',403);
   if(method==='GET')return json({suggestions:(await env.DB.prepare("SELECT s.*,COALESCE(json_extract(u.profile,'$.name'),u.friend_username) name FROM topic_suggestions s LEFT JOIN users u ON u.id=s.user_id ORDER BY s.status,s.created_at DESC LIMIT 200").all()).results});
@@ -40,6 +44,7 @@ export async function accountApi(request,env,user,body){
   add('UPDATE trivia_games SET invitee_id=NULL WHERE invitee_id=?',user.id);
   add('DELETE FROM trivia_games WHERE creator_id=?',user.id);
   add('DELETE FROM friendships WHERE user_low=? OR user_high=?',user.id,user.id);
+  add('UPDATE request_messages SET sender_id=NULL,sender_name=? WHERE sender_id=?', 'Deleted account',user.id);
   for(const table of ['friend_username_aliases','discovery_queue','daily_ready','discovery_prep_state'])add(`DELETE FROM ${table} WHERE user_id=?`,user.id);
   add('DELETE FROM quiz_requests WHERE user_id=?',user.id);
   add('UPDATE quiz_requests SET reviewed_by=NULL WHERE reviewed_by=?',user.id);

@@ -33,7 +33,7 @@ export function validateSettings(value) {
  if('periodWindows' in value)output.periodWindows=validatePeriodWindows(value.periodWindows);
  if('reminders' in value)output.reminders=validateReminders(value.reminders);
  if('phoneAlerts' in value){if(typeof value.phoneAlerts!=='boolean')fail('Choose a valid phone alert setting.');output.phoneAlerts=value.phoneAlerts}
- if('pushEvents' in value){if(!value.pushEvents||Array.isArray(value.pushEvents)||typeof value.pushEvents!=='object'||Object.entries(value.pushEvents).some(([key,val])=>!['friendRequests','friendAccepted','challengeInvites','quizResults'].includes(key)||typeof val!=='boolean'))fail('Choose valid notification types.');output.pushEvents={...value.pushEvents}}
+ if('pushEvents' in value){if(!value.pushEvents||Array.isArray(value.pushEvents)||typeof value.pushEvents!=='object'||Object.entries(value.pushEvents).some(([key,val])=>!['friendRequests','friendAccepted','challengeInvites','quizResults','adminRequests','allowanceUpdates'].includes(key)||typeof val!=='boolean'))fail('Choose valid notification types.');output.pushEvents={...value.pushEvents}}
  if('challengeAlerts' in value){if(typeof value.challengeAlerts!=='boolean')fail('Choose a valid challenge alert setting.');output.challengeAlerts=value.challengeAlerts}
  if('notificationsEnabled' in value){if(typeof value.notificationsEnabled!=='boolean')fail('Invalid notification setting.');output.notificationsEnabled=value.notificationsEnabled}
  return output;

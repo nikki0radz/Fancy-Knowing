@@ -1,3 +1,4 @@
+import {bankApi,bankSubjects} from './bank.mjs';
 import {accountApi} from './account.mjs';
 import {allowanceApi} from './admin.mjs';
 import {pushApi,deliverPushOutbox} from './push.mjs';
@@ -25,7 +26,7 @@ async function databaseStatus(env){
  try{
   const tables=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   const names=new Set(tables.results.map(r=>r.name));
-  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts','quiz_comments','quiz_reactions','quiz_requests','quiz_grants','ai_usage','topic_suggestions'];
+  const required=['users','sessions','questions','attempts','saved','chats','budgets','locks','email_tokens','approved_topics','daily_assignments','email_outbox','shared_questions','question_embeddings','trivia_games','trivia_game_questions','trivia_players','trivia_answers','challenge_notifications','friendships','corrected_question_keys','discovery_queue','daily_ready','discovery_prep_state','quiz_participants','quiz_responses','quiz_invitations','friend_username_aliases','friend_notifications','push_keys','push_subscriptions','push_outbox','push_receipts','quiz_comments','quiz_reactions','quiz_requests','quiz_grants','ai_usage','topic_suggestions','request_messages','app_notifications','curated_questions'];
   const missingTables=required.filter(name=>!names.has(name));
   if(missingTables.length)return {databaseReady:false,databaseIssue:'migrations_missing',missingTables};
   const columns=await env.DB.prepare('PRAGMA table_info(users)').all();
@@ -65,8 +66,9 @@ async function api(request,env,ctx){
  if(path.startsWith('/api/shared/'))fail('This shared question could not be found.',404);
  if(path.startsWith('/api/challenges/')){let visitor=null;try{visitor=await userFor(request,env)}catch(e){if(e.status!==401)throw e}return gamesApi(request,env,visitor,body)}
  const user=await userFor(request,env);
+ if(path==='/api/admin/question-bank')return bankApi(request,env,user,body);
  if(path==='/api/account'||path==='/api/account/walkthrough'||path==='/api/topic-suggestions')return accountApi(request,env,user,body);
- if(path==='/api/admin'||path.startsWith('/api/admin/')||path==='/api/quiz-requests')return allowanceApi(request,env,user,body);
+ if(path==='/api/admin'||path.startsWith('/api/admin/')||path==='/api/quiz-requests'||path.startsWith('/api/request-threads/'))return allowanceApi(request,env,user,body);
  if(path.startsWith('/api/push/'))return pushApi(request,env,user,body);
  if(path==='/api/friends'||path.startsWith('/api/friends/'))return friendsApi(request,env,user,body);
  if(path==='/api/games'||path.startsWith('/api/games/')||path==='/api/notifications'||path.startsWith('/api/notifications/'))return gamesApi(request,env,user,body);
@@ -91,10 +93,10 @@ async function api(request,env,ctx){
  if(method==='POST'&&path==='/api/account/email')return requestEmailChange(request,env,user,await body(request));
  if(method==='GET'&&path==='/api/quiz-topics'){
   const uses=await env.DB.prepare('SELECT topic,COUNT(*) AS uses FROM trivia_games WHERE creator_id=? AND manual=0 GROUP BY topic ORDER BY uses DESC').bind(user.id).all();const profile=JSON.parse(user.profile||'{}');const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=?').bind(user.id).all();
-  const scores=new Map(uses.results.map(r=>[r.topic,r.uses]));const all=[...new Set(['General knowledge',...uses.results.map(r=>r.topic==='Mixed topics'?'General knowledge':r.topic),...(profile.interests||[]),...SUBJECTS,...custom.results.map(r=>r.topic)])];const rest=all.filter(t=>t!=='General knowledge').sort((a,b)=>(scores.get(b)||0)-(scores.get(a)||0));return json({topics:['General knowledge',...rest]});
+  const scores=new Map(uses.results.map(r=>[r.topic,r.uses]));const all=[...new Set(['General knowledge',...uses.results.map(r=>r.topic==='Mixed topics'?'General knowledge':r.topic),...(profile.interests||[]),...SUBJECTS,...custom.results.map(r=>r.topic)])];const availableBank=await bankSubjects(env,user);all.push(...availableBank.filter(t=>!all.includes(t)));const rest=all.filter(t=>t!=='General knowledge').sort((a,b)=>(scores.get(b)||0)-(scores.get(a)||0));return json({topics:['General knowledge',...rest],bankSubjects:availableBank});
  }
- if(method==='GET'&&path==='/api/topics'){const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? ORDER BY created_at').bind(user.id).all();return json({subjects:SUBJECTS,custom:custom.results.map(r=>r.topic)})}
- if(method==='POST'&&path==='/api/topics')return json(await approveTopic(env,user,(await body(request)).topic));
+ if(method==='GET'&&path==='/api/topics'){const custom=await env.DB.prepare('SELECT topic FROM approved_topics WHERE user_id=? ORDER BY created_at').bind(user.id).all();return json({subjects:SUBJECTS,custom:[...new Set([...custom.results.map(r=>r.topic),...await bankSubjects(env,user)])].filter(t=>!SUBJECTS.includes(t))})}
+ if(method==='POST'&&path==='/api/topics'){const input=await body(request),topic=typeof input.topic==='string'?input.topic.trim():'';const bank=(await bankSubjects(env,user)).find(t=>t.toLowerCase()===topic.toLowerCase());if(bank)return json({topic:bank});return json(await approveTopic(env,user,topic))}
  if(method==='PUT'&&path==='/api/profile')return json(await updateProfile(env,user,await body(request)));
  if((method==='PUT'||method==='DELETE')&&path==='/api/avatar'){
   let avatar=null;
@@ -134,6 +136,7 @@ async function api(request,env,ctx){
  const match=path.match(/^\/api\/questions\/([^/]+)(?:\/(answer|save|chat|share))?$/);
  if(match){
   const row=await questionFor(env,match[1]),q=JSON.parse(row.data),action=match[2];
+  if(q.bankScopeUser&&q.bankScopeUser!==user.id&&!await env.DB.prepare('SELECT g.game_id FROM trivia_game_questions g WHERE g.question_id=? AND (EXISTS(SELECT 1 FROM quiz_participants p WHERE p.game_id=g.game_id AND p.user_id=?) OR EXISTS(SELECT 1 FROM trivia_players p WHERE p.game_id=g.game_id AND p.user_id=?))').bind(row.id,user.id,user.id).first())fail('This is a personal question.',403);
   if(q.origin==='manual'&&!await env.DB.prepare('SELECT g.game_id FROM trivia_game_questions g JOIN trivia_games t ON t.id=g.game_id WHERE g.question_id=? AND (t.creator_id=? OR EXISTS(SELECT 1 FROM quiz_participants p WHERE p.game_id=t.id AND p.user_id=?) OR EXISTS(SELECT 1 FROM trivia_players p WHERE p.game_id=t.id AND p.user_id=?))').bind(row.id,user.id,user.id,user.id).first())fail('This is a private handmade question.',403);
   if(method==='GET'&&!action)return json({question:reveal(row,await latest(env,user.id,row.id),url.searchParams.get('blind')==='1',JSON.parse(user.settings).units)});
   if(method==='POST'&&action==='share'){

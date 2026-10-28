@@ -2,7 +2,7 @@ import {fail,hash,DAY,localDay} from './core.mjs';
 import {budget} from './ai.mjs';
 import {json} from './auth.mjs';
 import {buildPushPayload} from './web-push.vendor.mjs';
-export const PUSH_EVENTS=['friendRequests','friendAccepted','challengeInvites','quizResults'];
+export const PUSH_EVENTS=['friendRequests','friendAccepted','challengeInvites','quizResults','adminRequests','allowanceUpdates'];
 const b64=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 function bytes(value){if(typeof value!=='string'||value.length>150||!/^[A-Za-z0-9_-]+={0,2}$/.test(value))fail('Reconnect this device to phone alerts.');try{return Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=')),c=>c.charCodeAt(0))}catch{fail('Reconnect this device to phone alerts.')}}
 export function validPushEndpoint(value){try{const u=new URL(value);return value.length<2000&&u.protocol==='https:'&&!u.username&&!u.password&&(!u.port||u.port==='443')&&(['fcm.googleapis.com','updates.push.services.mozilla.com','web.push.apple.com'].includes(u.hostname)||u.hostname.endsWith('.notify.windows.com'))}catch{return false}}

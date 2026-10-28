@@ -1,3 +1,4 @@
+import {bankPack,bankSubjects} from './bank.mjs';
 import {hash,normalize,localDay,DAY,fail} from './core.mjs';
 import {budget} from './ai.mjs';
 import {triviaPack} from './trivia.mjs';
@@ -27,9 +28,9 @@ export async function prepareReady(env,user){
   await budget(env,'ready:'+user.id+':'+today,30,now+2*DAY);
   const history=(await env.DB.prepare('SELECT subject FROM daily_assignments WHERE user_id=? UNION ALL SELECT json_extract(q.data,\'$.topic\') subject FROM discovery_queue r JOIN questions q ON q.id=r.question_id WHERE r.user_id=?').bind(user.id,user.id).all()).results;
   const topicPlan=jobs.map(()=>{const selection=chooseSubject(profile.interests||[],profile.includeEverything===true,history);history.push({subject:selection.topic});return selection.topic});
-  const pack=await triviaPack(env,user,'General knowledge','medium',jobs.length,4,{topicPlan}),commands=[];
+  let pack;if((await bankSubjects(env,user)).length){const questions=[],seen=[];for(let i=0;i<jobs.length;i++){try{const selected=await bankPack(env,user,topicPlan[i],null,1,[],seen)||await bankPack(env,user,'General knowledge',null,1,[],seen);questions.push(selected.questions[0]);seen.push(selected.questions[0].concept)}catch(e){if(e.status===409&&questions.length)break;throw e}}jobs.length=questions.length;pack={questions,bank:true}}else pack=await triviaPack(env,user,'General knowledge','medium',jobs.length,4,{topicPlan});const commands=[];
   for(let i=0;i<jobs.length;i++){
-   const q=pack.questions[i],id=crypto.randomUUID();commands.push(env.DB.prepare('INSERT INTO questions(id,day,fingerprint,concept,data,created_at) VALUES (?,?,?,?,?,?)').bind(id,(jobs[i].day||today)+':ready:'+id,await hash(normalize(q.q)+':ready:'+id),q.concept,JSON.stringify(q),now+i));commands.push(env.DB.prepare('INSERT INTO question_embeddings(question_id,model,vector) VALUES (?,?,?)').bind(id,EMBEDDING_MODEL,JSON.stringify(pack.vectors[i])));
+   const q=pack.questions[i],id=crypto.randomUUID();commands.push(env.DB.prepare('INSERT INTO questions(id,day,fingerprint,concept,data,created_at) VALUES (?,?,?,?,?,?)').bind(id,(jobs[i].day||today)+':ready:'+id,await hash(normalize(q.q)+':ready:'+id),q.concept,JSON.stringify(q),now+i));if(!pack.bank)commands.push(env.DB.prepare('INSERT INTO question_embeddings(question_id,model,vector) VALUES (?,?,?)').bind(id,EMBEDDING_MODEL,JSON.stringify(pack.vectors[i])));
    const job=jobs[i];commands.push(job.kind==='extra'?env.DB.prepare('INSERT INTO discovery_queue(user_id,question_id,profile_key,created_at) VALUES (?,?,?,?)').bind(user.id,id,profile_key,now+i):env.DB.prepare('INSERT INTO daily_ready(user_id,day,slot,profile_key,question_id,created_at) VALUES (?,?,?,?,?,?)').bind(user.id,job.day,job.slot,profile_key,id,now+i));
   }
   await env.DB.batch(commands);return {readyCount:await readyCount(env,user),prepared:jobs.length};
