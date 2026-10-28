@@ -27,7 +27,7 @@ test('email addresses normalise case; simple passwords remain allowed',async()=>
  assert.equal(password('a'),'a');assert.throws(()=>password(''));
 });
 test('design and notification preferences validate ranges and reject CSS injection',()=>{
- const settings={font:'handwritten',fontSize:125,accentDark:'#d8ac47',backgroundDark:'#101426',answerCount:10,dailyAmount:3,notificationsEnabled:false};assert.deepEqual(validateSettings(settings),settings);
+ const settings={font:'handwritten',fontSize:125,accentDark:'#d8ac47',backgroundDark:'#101426',answerCount:10,dailyAmount:3,notificationsEnabled:false};assert.deepEqual(validateSettings(settings),{...settings,answerCount:4});
  for(const input of [{font:'unknown'},{fontSize:900},{accentDark:'red;display:none'},{dailyAmount:0},{dailyAmount:11},{answerCount:1},{answerCount:11},{notificationsEnabled:'yes'}])assert.throws(()=>validateSettings(input));
 });
 test('question marking supports 2 through 10 choices and rejects mismatched generated counts',()=>{
@@ -167,7 +167,12 @@ test('Candy Cloud replaces the old default palette while keeping custom colours'
 
 test('handmade quizzes validate authored answers and retain their key after shuffling',async()=>{
  const {manualQuiz}=await import('../worker/quiz.mjs');
- const q={q:'What is my favourite colour?',options:['Purple','Green','Blue'],correct:0,explanation:'Purple has always been my favourite.'};
+ const q={q:'What is my favourite colour?',options:['Purple','Green','Blue','Pink'],correct:0,explanation:'Purple has always been my favourite.'};
  const pack=manualQuiz({topic:'How well do you know me?',questions:[q]});assert.equal(pack.questions[0].options[pack.questions[0].correct],'Purple');assert.equal(pack.questions[0].origin,'manual');assert.equal(pack.vectors.length,0);
- for(const bad of [{...q,correct:9},{...q,options:['Purple','purple']},{...q,options:['Purple','']},{...q,format:'unknown'}])assert.throws(()=>manualQuiz({topic:'My quiz',questions:[bad]}));
+ for(const bad of [{...q,options:['One','Two','Three'],correct:0},{...q,options:Array.from({length:10},(_,i)=>String(i)),correct:0},{...q,correct:9},{...q,options:['Purple','purple']},{...q,options:['Purple','']},{...q,format:'unknown'}])assert.throws(()=>manualQuiz({topic:'My quiz',questions:[bad]}));
+});
+
+test('prepared questions use the same four-choice profile key despite legacy preferences',async()=>{
+ const {profileKey}=await import('../worker/ready.mjs');const user={profile:JSON.stringify({interests:['History'],includeEverything:true})};
+ const keys=await Promise.all([2,4,10].map(answerCount=>profileKey({...user,settings:JSON.stringify({answerCount})})));assert.equal(keys[0],keys[1]);assert.equal(keys[1],keys[2]);
 });

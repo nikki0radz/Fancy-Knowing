@@ -38,7 +38,7 @@ export function manualQuiz(input){
   if(!item||typeof item!=='object'||Array.isArray(item))fail(`Question ${index+1} is invalid.`);
   const q=typeof item.q==='string'?item.q.trim():'',format=item.format||'multiple_choice';
   if(q.length<3||q.length>500)fail(`Question ${index+1} needs 3–500 characters.`);
-  if(!['multiple_choice','true_false'].includes(format)||!Array.isArray(item.options)||item.options.length<2||item.options.length>10)fail(`Question ${index+1} needs 2–10 answers.`);
+  if(!['multiple_choice','true_false'].includes(format)||!Array.isArray(item.options)||item.options.length!==(format==='true_false'?2:4))fail(`Question ${index+1} needs ${format==='true_false'?'2 true/false':'4 multiple-choice'} answers.`);
   const options=item.options.map(o=>typeof o==='string'?o.trim():'');
   if(options.some(o=>!o||o.length>150)||new Set(options.map(normalize)).size!==options.length)fail(`Give question ${index+1} distinct, non-empty answers, up to 150 characters each.`);
   if(!Number.isInteger(item.correct)||item.correct<0||item.correct>=options.length)fail(`Mark the correct answer for question ${index+1}.`);

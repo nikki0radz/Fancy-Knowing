@@ -29,7 +29,7 @@ export function validateSettings(value) {
  if ('timezone' in value) { try { new Intl.DateTimeFormat('en-GB', {timeZone:value.timezone}).format(); } catch { fail('Invalid time zone.'); } output.timezone = String(value.timezone); }
  for(const key of ['accentDark','accentLight','backgroundDark','backgroundLight'])if(key in value){if(typeof value[key]!=='string'||!/^#[a-f0-9]{6}$/i.test(value[key]))fail('Choose a valid colour.');output[key]=value[key].toLowerCase()}
  if('font' in value){if(!['clean','typewriter','classic','script','gothic','handwritten'].includes(value.font))fail('Choose an available font.');output.font=value.font}
- for(const [key,min,max] of [['fontSize',75,160],['dailyAmount',1,10],['answerCount',2,10]])if(key in value){if(!Number.isInteger(value[key])||value[key]<min||value[key]>max)fail('Invalid '+key+' setting.');output[key]=value[key]}
+ for(const [key,min,max] of [['fontSize',75,160],['dailyAmount',1,10],['answerCount',2,10]])if(key in value){if(!Number.isInteger(value[key])||value[key]<min||value[key]>max)fail('Invalid '+key+' setting.');output[key]=key==='answerCount'?4:value[key]}
  if('periodWindows' in value)output.periodWindows=validatePeriodWindows(value.periodWindows);
  if('reminders' in value)output.reminders=validateReminders(value.reminders);
  if('phoneAlerts' in value){if(typeof value.phoneAlerts!=='boolean')fail('Choose a valid phone alert setting.');output.phoneAlerts=value.phoneAlerts}

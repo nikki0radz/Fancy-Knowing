@@ -139,7 +139,7 @@ test('daily questions use a selected niche, cache by subject and do not include 
 });
 test('design, frequency and question-count settings persist per account; avatars validate and stay private',async()=>{
  const account=await login('nicole@example.com','x'),cookie=account.cookie;
- const saved=await call('/settings',{method:'PUT',cookie,body:{font:'classic',fontSize:130,accentDark:'#d8ac47',backgroundDark:'#141414',dailyAmount:4,answerCount:10,notificationsEnabled:false}});assert.equal(saved.status,200);assert.equal(saved.data.settings.answerCount,10);assert.equal((await call('/me',{cookie})).data.user.settings.dailyAmount,4);
+ const saved=await call('/settings',{method:'PUT',cookie,body:{font:'classic',fontSize:130,accentDark:'#d8ac47',backgroundDark:'#141414',dailyAmount:4,answerCount:10,notificationsEnabled:false}});assert.equal(saved.status,200);assert.equal(saved.data.settings.answerCount,4);assert.equal((await call('/me',{cookie})).data.user.settings.dailyAmount,4);
  assert.equal((await call('/today',{cookie})).data.question.options.length,4);
  const mum=await login('mum@example.com','another-test-password');assert.equal((await call('/me',{cookie:mum.cookie})).data.user.settings.answerCount,undefined);
  assert.equal((await call('/avatar',{method:'PUT',cookie,body:{avatar:'data:image/svg+xml;base64,PHN2Zz4='}})).status,400);
@@ -598,7 +598,7 @@ test('handmade challenges bypass AI quotas, keep personal facts out of AI memory
 test('quiz discussion is shared only with finishers, supports guests, retries and host moderation',async()=>{
  const signup=(label,ip)=>call('/auth/signup',{method:'POST',ip,body:{email:label+'@example.test',password:'x',code:'private-test-code'}});
  const host=await signup('comments-host','192.0.2.121'),other=await signup('comments-other','192.0.2.122'),cookie=host.cookie;
- const made=await call('/games',{cookie,method:'POST',body:{kind:'challenge',topic:'How well do you know me?',difficulty:'easy',requestId:crypto.randomUUID(),questions:[{q:'What is my favourite colour?',options:['Pink','Green'],correct:0}]}});
+ const made=await call('/games',{cookie,method:'POST',body:{kind:'challenge',topic:'How well do you know me?',difficulty:'easy',requestId:crypto.randomUUID(),questions:[{q:'What is my favourite colour?',options:['Pink','Green','Blue','Yellow'],correct:0}]}});
  assert.equal(made.status,200);const id=made.data.game.id,path='/games/'+id+'/comments',invite='/challenges/'+new URL(made.data.game.inviteUrl).searchParams.get('challenge');
  assert.equal((await call(path,{cookie})).status,403);assert.equal((await call(invite+'/comments')).status,403);
  const guest=await call(invite+'/join',{method:'POST',body:{name:'Mum'}}),guest2=await call(invite+'/join',{method:'POST',body:{name:'Another guest'}});
@@ -622,7 +622,7 @@ test('quiz discussion is shared only with finishers, supports guests, retries an
 
 test('quiz reactions are private to finishers, count each player once and allow changing or clearing',async()=>{
  const host=await call('/auth/signup',{method:'POST',ip:'192.0.2.125',body:{email:'reactions-host@example.test',password:'x',code:'private-test-code'}}),cookie=host.cookie;
- const made=await call('/games',{cookie,method:'POST',body:{kind:'challenge',topic:'A tiny reaction quiz',difficulty:'easy',requestId:crypto.randomUUID(),questions:[{q:'Which letter comes first?',options:['A','B'],correct:0}]}});assert.equal(made.status,200);
+ const made=await call('/games',{cookie,method:'POST',body:{kind:'challenge',topic:'A tiny reaction quiz',difficulty:'easy',requestId:crypto.randomUUID(),questions:[{q:'Which letter comes first?',options:['A','B','C','D'],correct:0}]}});assert.equal(made.status,200);
  const id=made.data.game.id,path='/games/'+id+'/comments',invite='/challenges/'+new URL(made.data.game.inviteUrl).searchParams.get('challenge'),put=(route,who,reaction)=>call(route,{cookie:who,method:'PUT',body:{reaction}});
  assert.equal((await put(path,cookie,'😂')).status,403);
  const guest=await call(invite+'/join',{method:'POST',body:{name:'Mum'}});assert.equal((await put(invite+'/comments',guest.cookie,'😂')).status,403);
@@ -642,7 +642,7 @@ test('admin top-ups require a configured account ID, are idempotent, private and
  const owner=await db.prepare('SELECT * FROM users WHERE id=?').bind(a.data.user.id).first(),mum=await db.prepare('SELECT * FROM users WHERE id=?').bind(b.data.user.id).first(),other=await db.prepare('SELECT * FROM users WHERE id=?').bind(c.data.user.id).first(),env={DB:db,ADMIN_USER_ID:owner.id,QUIZ_DAILY_LIMIT:'1'},day=localDayForTest();
  async function direct(path,who,method='GET',input={}){return (await allowanceApi(new Request(origin+'/api'+path,{method}),env,who,async()=>input)).json()}
  assert.equal(a.data.user.isAdmin,false);assert.equal((await call('/admin',{cookie:a.cookie})).status,403);await assert.rejects(()=>direct('/admin',mum),e=>e.status===403);await assert.rejects(()=>direct('/admin/grants',other,'POST',{userId:other.id,amount:20,id:crypto.randomUUID()}),e=>e.status===403);
- const manual=await call('/games',{cookie:b.cookie,method:'POST',body:{kind:'challenge',topic:'Quota fixture',difficulty:'easy',requestId:crypto.randomUUID(),questions:[{q:'Which letter comes first?',options:['A','B'],correct:0}]}});assert.equal(manual.status,200);
+ const manual=await call('/games',{cookie:b.cookie,method:'POST',body:{kind:'challenge',topic:'Quota fixture',difficulty:'easy',requestId:crypto.randomUUID(),questions:[{q:'Which letter comes first?',options:['A','B','C','D'],correct:0}]}});assert.equal(manual.status,200);
  await db.prepare('UPDATE trivia_games SET manual=0 WHERE id=?').bind(manual.data.game.id).run();const first=await quizAllowance(env,mum);assert.equal(first.used,1);assert.equal(first.remaining,0);
  await assert.rejects(()=>gamesApi(new Request(origin+'/api/games',{method:'POST'}),env,mum,async()=>({kind:'solo',topic:'Unseen custom topic',difficulty:'easy',count:2,requestId:crypto.randomUUID()})),e=>e.status===429); // Stops before any AI topic check.
  let own=await direct('/quiz-requests',mum,'POST');const id=own.requests[0].id;assert.equal(own.requests[0].amount,5);await direct('/quiz-requests',mum,'POST');assert.equal((await direct('/quiz-requests',mum)).requests.length,1);assert.equal((await direct('/quiz-requests',other)).requests.length,0);

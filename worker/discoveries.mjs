@@ -25,7 +25,7 @@ export async function assignDiscovery(env,user,day,slot){
   const history=await env.DB.prepare('SELECT subject FROM daily_assignments WHERE user_id=? ORDER BY created_at,day,slot').bind(user.id).all();
   const selection=chooseSubject(profile.interests||[],profile.includeEverything===true,history.results);
   const memory=await loadMemory(env,user.id);
-  const row=await dailyQuestion(env,day,profile.interests||[],settings.answerCount||4,profile.includeEverything===true,{userId:user.id,slot,topic:selection.topic,memory});
+  const row=await dailyQuestion(env,day,profile.interests||[],4,profile.includeEverything===true,{userId:user.id,slot,topic:selection.topic,memory});
   await env.DB.prepare('INSERT INTO daily_assignments(user_id,day,slot,question_id,subject,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day,slot) DO NOTHING').bind(user.id,day,slot,row.id,selection.topic,Date.now()).run();
   return await assignedQuestion(env,user.id,day,slot);
  }finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}
