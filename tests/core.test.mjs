@@ -176,3 +176,8 @@ test('prepared questions use the same four-choice profile key despite legacy pre
  const {profileKey}=await import('../worker/ready.mjs');const user={profile:JSON.stringify({interests:['History'],includeEverything:true})};
  const keys=await Promise.all([2,4,10].map(answerCount=>profileKey({...user,settings:JSON.stringify({answerCount})})));assert.equal(keys[0],keys[1]);assert.equal(keys[1],keys[2]);
 });
+
+test('journal calendar groups by local dates across daylight saving and keeps zero days',async()=>{
+ const {summarizeJournal}=await import('../worker/profiles.mjs');const now=Date.parse('2026-10-26T12:00:00Z');
+ const rows=[{topic:'Nature',correct:1,created_at:Date.parse('2026-10-24T23:30:00Z')},{topic:'Nature',correct:0,created_at:Date.parse('2026-10-25T23:30:00Z')},{topic:'Nature',correct:1,created_at:Date.parse('2026-10-19T23:30:00Z')},{topic:'Nature',correct:1,created_at:now+1}];const j=summarizeJournal(rows,'Europe/London',now);assert.equal(j.week[0].day,'2026-10-20');assert.equal(j.week.find(d=>d.day==='2026-10-25').count,2);assert.equal(j.week.find(d=>d.day==='2026-10-20').count,1);assert.equal(j.totalWeek,3);assert.equal(j.answered,3);assert.equal(j.correct,2);assert.equal(j.activeDays,2);assert.equal(j.strengths.length,0);
+});

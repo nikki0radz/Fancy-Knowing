@@ -9,7 +9,7 @@ import {displayQuestion,formatUnits} from './quiz.mjs';
 import {friendsApi} from './friends.mjs';
 import {gamesApi,quizAllowance} from './games.mjs';
 import { deliverPendingWelcomes,welcomeStatus,retryWelcome } from './mail.mjs';
-import { SUBJECTS, approveTopic, updateProfile } from './profiles.mjs';
+import { SUBJECTS, approveTopic, updateProfile, profileJournal } from './profiles.mjs';
 async function body(request,limit=16000) {
  if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('Use JSON for this request.',415);
  const reader=request.body?.getReader();if(!reader)fail('Missing request body.');let size=0,chunks=[];
@@ -81,7 +81,7 @@ async function api(request,env,ctx){
   await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(tokenFrom(request))).run();return json({ok:true},200,{'Set-Cookie':sessionCookie('',0)});
  }
  if(method==='GET'&&path==='/api/my-profile'){
-  const stats=await env.DB.prepare('SELECT COUNT(DISTINCT question_id) discoveries,COUNT(*) attempts,SUM(correct) correct FROM attempts WHERE user_id=?').bind(user.id).first(),saved=await env.DB.prepare('SELECT COUNT(*) n FROM saved WHERE user_id=?').bind(user.id).first(),games=await env.DB.prepare('SELECT COUNT(*) n FROM (SELECT id FROM trivia_players WHERE user_id=? AND completed_at IS NOT NULL UNION ALL SELECT id FROM quiz_participants WHERE user_id=? AND completed_at IS NOT NULL)').bind(user.id,user.id).first(),friends=await env.DB.prepare('SELECT COUNT(*) n FROM friendships WHERE (user_low=? OR user_high=?) AND accepted_at IS NOT NULL').bind(user.id,user.id).first();return json({user:publicUser(user,env),stats:{discoveries:stats.discoveries,accuracy:stats.attempts?Math.round(stats.correct/stats.attempts*100):0,saved:saved.n,quizzes:games.n,friends:friends.n}});
+  const [journal,saved,games,friends]=await Promise.all([profileJournal(env,user),env.DB.prepare('SELECT COUNT(*) n FROM saved WHERE user_id=?').bind(user.id).first(),env.DB.prepare('SELECT COUNT(*) n FROM (SELECT game_id FROM trivia_players WHERE user_id=? AND completed_at IS NOT NULL UNION SELECT game_id FROM quiz_participants WHERE user_id=? AND completed_at IS NOT NULL)').bind(user.id,user.id).first(),env.DB.prepare('SELECT COUNT(*) n FROM friendships WHERE (user_low=? OR user_high=?) AND accepted_at IS NOT NULL').bind(user.id,user.id).first()]);return json({user:publicUser(user,env),journal,stats:{discoveries:journal.answered,accuracy:journal.accuracy,saved:saved.n,quizzes:games.n,friends:friends.n}});
  }
  if(method==='GET'&&path==='/api/account/welcome-email')return json(await welcomeStatus(env,user),200,{'Cache-Control':'no-store'});
  if(method==='POST'&&path==='/api/account/welcome-email'){await budget(env,`welcome-retry:${user.id}:${localDay()}`,3,Date.now()+2*DAY,'You can retry your welcome email three times a day. Please try again tomorrow.');return json(await retryWelcome(env,user))}

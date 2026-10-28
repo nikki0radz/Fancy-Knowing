@@ -42,6 +42,41 @@ body:has(#home:not([hidden])) #headerprofile{display:none}
 #bank.history-view .bankitem-footer .textbtn{margin-left:auto;border:1px solid var(--line);border-radius:99px;padding:8px 11px;background:var(--input)}
 
 /* A visible recent archive, with the rest one tap away. */
+.personal-journal .journal-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:25px}
+.journal-toolbar>strong{font-size:17px}
+.journal-identity{display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--line);padding-bottom:23px;margin-bottom:26px}
+.journal-identity>.editable-avatar{flex-shrink:0}
+.journal-identity .profile-large-avatar{width:82px;height:82px}
+.journal-identity-copy{min-width:0;flex:1}
+.journal-name{display:flex;align-items:center;gap:8px}
+.journal-name h1{font-size:calc(29px * var(--font-scale,1));letter-spacing:-.7px;line-height:1.2;margin:0;overflow-wrap:anywhere}
+.journal-name .icon-button{flex-shrink:0}
+.journal-username{display:flex;align-items:center;gap:6px;font-size:calc(12px * var(--font-scale,1));color:var(--muted);background:transparent;padding:7px 0;text-align:left;overflow-wrap:anywhere}
+.journal-username svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;flex-shrink:0}
+.journal-kicker{font-size:calc(11px * var(--font-scale,1));letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+.journal-title{font-family:Georgia,serif;font-size:calc(30px * var(--font-scale,1));font-weight:400;line-height:1.2;letter-spacing:-.6px;margin:0 0 24px}
+.journal-week{padding:19px 17px;border-radius:20px;background:var(--panel);margin:0 0 26px}
+.journal-week-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:20px}
+.journal-week-heading h2{font-size:calc(17px * var(--font-scale,1));margin:0}
+.journal-week-heading>strong{font-size:calc(23px * var(--font-scale,1));color:var(--pink)}
+.journal-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:9px;align-items:end}
+.journal-day{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+.journal-day-count,.journal-day small{font-size:calc(11px * var(--font-scale,1));color:var(--muted)}
+.journal-bar-track{height:75px;display:flex;align-items:flex-end;width:20px;max-width:100%}
+.journal-bar{display:block;width:100%;background:var(--accent);border-radius:7px 7px 3px 3px}
+.journal-average{font-size:calc(12px * var(--font-scale,1));line-height:1.6;color:var(--muted);margin:16px 0 0}
+.journal-average strong{color:var(--pink)}
+.journal-caption{font-size:calc(11px * var(--font-scale,1));line-height:1.6;color:var(--muted);margin:9px 0 0}
+.journal-entry{display:flex;align-items:flex-start;gap:14px;padding:20px 0;border-top:1px solid var(--line)}
+.journal-entry>span{font-size:25px;flex-shrink:0}
+.journal-entry>div{flex:1;min-width:0}
+.journal-entry h2{font-size:calc(16px * var(--font-scale,1));line-height:1.4;letter-spacing:-.2px;margin:0 0 8px;overflow-wrap:anywhere}
+.journal-entry p{font-size:calc(12px * var(--font-scale,1));line-height:1.7;color:var(--muted);margin:0}
+.journal-entry p.journal-caption{font-size:calc(11px * var(--font-scale,1));margin-top:8px}
+.journal-practise{width:100%;font-size:calc(12px * var(--font-scale,1));margin-top:15px;padding:12px 14px;overflow-wrap:anywhere}
+.journal-interests{margin-top:18px;padding-top:22px;border-top:1px solid var(--line)}
+.journal-interests h2{font-size:17px;margin:0 0 14px}
+.journal-interests .full-row-action{margin-top:15px}
 .past-quiz-preview{margin:24px 0;padding:18px 15px 8px;border:1px solid var(--line);border-radius:22px;background:var(--panel)}
 .past-quiz-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .past-quiz-heading h2{font-size:18px;margin:0;letter-spacing:-.4px}

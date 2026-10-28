@@ -2,6 +2,21 @@ import { fail, normalize } from './core.mjs';
 import { openai, budget } from './ai.mjs';
 import { responseText, localDay, DAY } from './core.mjs';
 export const SUBJECTS=['Chemistry','Biology','History','Poetry','Art','Maths','Philosophy','Physics','Space','Psychology','Geography','Literature','Music','Technology','Nature','Oceans','Languages','Architecture','Food science','The human body','Mythology','Film','Engineering','Archaeology'];
+export function summarizeJournal(rows,timezone,now=Date.now()){
+ const today=localDay(timezone,new Date(now)),week=Array.from({length:7},(_,i)=>({day:new Date(Date.parse(today+'T12:00:00Z')-(6-i)*DAY).toISOString().slice(0,10),count:0})),byDay=new Map(week.map(d=>[d.day,d])),topics=new Map();let answered=0,correct=0;
+ for(const row of rows){if(row.created_at>now)continue;answered++;correct+=Number(row.correct)||0;const day=byDay.get(localDay(timezone,new Date(row.created_at)));if(day)day.count++;
+  const label=String(row.topic||'General knowledge').trim()||'General knowledge',key=normalize(label);if(!topics.has(key))topics.set(key,{topic:label,answered:0,correct:0});const topic=topics.get(key);topic.answered++;topic.correct+=Number(row.correct)||0;
+ }
+ const totalWeek=week.reduce((sum,d)=>sum+d.count,0),eligible=[...topics.values()].filter(t=>t.answered>=5).map(t=>({...t,accuracy:Math.round(t.correct/t.answered*100)}));
+ const strengths=eligible.filter(t=>t.correct/t.answered>=.7).sort((a,b)=>b.correct/b.answered-a.correct/a.answered||b.answered-a.answered||a.topic.localeCompare(b.topic)).slice(0,2),practice=eligible.filter(t=>t.correct/t.answered<.7).sort((a,b)=>a.correct/a.answered-b.correct/b.answered||b.answered-a.answered||a.topic.localeCompare(b.topic)).slice(0,2);
+ return {answered,correct,accuracy:answered?Math.round(correct/answered*100):0,week,totalWeek,averagePerDay:Math.round(totalWeek/7*10)/10,activeDays:week.filter(d=>d.count>0).length,strengths,practice,minimumTopicAnswers:5};
+}
+export async function profileJournal(env,user){
+ const now=Date.now(),settings=JSON.parse(user.settings),timezone=settings.timezone||'Europe/London';
+ // First answers keep refreshers from inflating topic accuracy or weekly activity.
+ const rows=await env.DB.prepare("WITH first_answers AS (SELECT question_id,correct,created_at,ROW_NUMBER() OVER (PARTITION BY question_id ORDER BY created_at,id) AS rank FROM attempts WHERE user_id=?) SELECT a.correct,a.created_at,json_extract(q.data,'$.topic') AS topic FROM first_answers a JOIN questions q ON q.id=a.question_id WHERE a.rank=1 AND a.created_at<=?").bind(user.id,now).all();
+ return summarizeJournal(rows.results,timezone,now);
+}
 export function displayName(value){if(typeof value!=='string')fail('What would you like us to call you?');const name=value.trim().replace(/\s+/g,' ');if(!name||name.length>60||/[\p{Cc}\p{Cf}<>]/u.test(name))fail('Use a name of up to 60 characters.');return name}
 export function customTopicText(value){if(typeof value!=='string')fail('Type a subject you want to learn about.');const text=value.trim().replace(/\s+/g,' ');if(text.length<2||text.length>120||!/[\p{L}]/u.test(text)||/[\p{Cc}\p{Cf}<>]/u.test(text)||/(.)\1{6}/u.test(text))fail('Try a recognisable subject, such as marine biology focused on sharks.');return text}
 export async function approveTopic(env,user,value){
