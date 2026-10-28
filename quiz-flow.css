@@ -57,3 +57,11 @@
 .admin-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.admin-stats>div{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px 10px}.admin-stats strong{display:block;color:var(--pink);font-size:29px}.admin-stats small{font-size:10px;color:var(--muted);line-height:1.5;display:block;margin-top:8px}.admin-section{margin-top:30px}.admin-section h2{font-size:19px}.admin-section h2>span{color:var(--pink)}
 .admin-request{padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:18px;margin:10px 0}.admin-request strong{display:block;font-size:15px}.admin-request small{display:block;color:var(--muted);font-size:11px;margin-top:6px}.admin-request-actions{display:flex;align-items:center;gap:18px;margin-top:14px}.admin-request-actions button{font-size:12px;padding:10px 13px}
 #admingrantform select{width:100%;margin:8px 0 16px}.admin-usage{margin:14px 0;padding:15px;background:var(--panel);border:1px solid var(--line);border-radius:16px}.admin-usage>strong{font-size:14px}.admin-usage>small{display:block;font-size:10px;overflow-wrap:anywhere;color:var(--muted);margin:5px 0 12px}.admin-usage p{font-size:11px;line-height:1.6;margin:6px 0}.admin-billing-link{display:block;font-size:13px;margin:20px 0}.admin-section>.secondary-button{padding:11px 15px;font-size:12px;margin-top:15px}
+
+/* Make topic choice and AI generation cost clear before creating a quiz. */
+.flow-topic-current .secondary-button{flex-shrink:0;padding:10px 13px;font-size:12px;border:1px solid var(--accent)}
+.flow-credit-note{font-size:12px;line-height:1.6;color:var(--pink);margin:12px 0 20px}
+.flow-standard-topics h2,.flow-custom-topics h2{font-size:15px;line-height:1.4;margin:0 0 12px}
+.flow-custom-topics{border-top:1px solid var(--line);padding-top:20px;margin-top:23px}
+.flow-custom-topics>p{font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 13px}
+.express-source{font-size:calc(11px * var(--font-scale,1));line-height:1.5;color:var(--pink);margin:0 0 17px}
