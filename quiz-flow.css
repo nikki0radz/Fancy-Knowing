@@ -69,6 +69,15 @@
 /* Change chip: an editable subject card and a separate custom AI route. */
 .quiz-flow-dialog .flow-subject-chip{display:block;width:100%;text-align:left;padding:23px 19px;border:1px solid var(--accent);border-radius:22px;background:var(--panel);color:var(--text)}
 .flow-subject-top{display:flex;align-items:center;gap:14px}
+.flow-timer-hero{text-align:center;padding:26px 18px;border:1px solid var(--line);border-radius:22px;background:var(--panel)}
+.flow-timer-symbol{display:block;color:var(--pink);font-size:65px;line-height:1.1;margin-bottom:10px}
+.flow-timer-hero>strong{display:block;font-size:calc(29px * var(--font-scale,1));line-height:1.2;letter-spacing:-.6px}
+.flow-timer-hero>p{font-size:calc(12px * var(--font-scale,1));line-height:1.6;color:var(--muted);margin:8px 0 0}
+.flow-timer-switch{display:flex;align-items:center;justify-content:space-between;gap:15px;margin:21px 0 0;padding:15px 0;border-top:1px solid var(--line)}
+.flow-timer-switch>span:first-child{flex:1;min-width:0}
+.flow-timer-switch strong{display:block;font-size:calc(14px * var(--font-scale,1));line-height:1.5}
+.flow-timer-switch small{display:block;font-size:calc(12px * var(--font-scale,1));color:var(--muted);margin-top:3px}
+.flow-timer-summary{font-size:calc(12px * var(--font-scale,1));line-height:1.6;color:var(--pink);margin:21px 0 9px}
 .flow-subject-copy{flex:1;min-width:0}
 .flow-subject-copy small{display:block;font-size:calc(11px * var(--font-scale,1));letter-spacing:.07em;color:var(--muted);margin-bottom:9px}
 .flow-subject-copy strong{display:block;font-size:calc(28px * var(--font-scale,1));line-height:1.2;letter-spacing:-.6px;overflow-wrap:anywhere}
