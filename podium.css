@@ -38,3 +38,22 @@ body:has(#home:not([hidden])) #headerprofile{display:none}
 #bank.history-view .bankitem-footer{justify-content:space-between;width:auto;max-width:none;margin:0 16px 14px;gap:12px;background:transparent;border:0;border-radius:0;overflow:visible}
 #bank.history-view .bankitem-footer .topic{max-width:50%;min-width:0;background:var(--input);border:1px solid var(--line);border-radius:99px;padding:8px 11px}
 #bank.history-view .bankitem-footer .textbtn{margin-left:auto;border:1px solid var(--line);border-radius:99px;padding:8px 11px;background:var(--input)}
+
+/* A visible recent archive, with the rest one tap away. */
+.past-quiz-preview{margin:24px 0;padding:18px 15px 8px;border:1px solid var(--line);border-radius:22px;background:var(--panel)}
+.past-quiz-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.past-quiz-heading h2{font-size:18px;margin:0;letter-spacing:-.4px}
+.past-quiz-heading>span{font-size:11px;color:var(--pink);background:var(--input);border-radius:99px;padding:5px 9px}
+.past-quiz-row{display:flex;align-items:center;gap:11px;width:100%;padding:13px 0;background:transparent;text-align:left;border-top:1px solid var(--line)}
+.past-quiz-symbol{flex-shrink:0;display:grid;place-items:center;width:34px;height:34px;border-radius:12px;background:var(--input);font-size:18px}
+.past-quiz-info{flex:1;min-width:0}.past-quiz-info strong{display:block;font-size:calc(13px * var(--font-scale,1));line-height:1.4;overflow-wrap:anywhere}
+.past-quiz-info small{display:block;font-size:calc(10px * var(--font-scale,1));line-height:1.4;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+.past-quiz-score{flex-shrink:0;text-align:right;color:var(--pink)}.past-quiz-score>strong{font-size:18px}.past-quiz-score strong small{font-size:11px;color:var(--muted);font-weight:500}.past-quiz-score>small{display:block;font-size:9px;color:var(--muted);margin-top:3px}
+.past-quiz-expand{display:flex;align-items:center;justify-content:center;gap:14px;width:100%;padding:13px 8px;border-top:1px solid var(--line);background:transparent;color:var(--pink);font-size:12px}.past-quiz-expand span{font-size:19px;line-height:1}
+.past-quiz-preview>.smallnote{margin:4px 0 14px}
+/* History is a dense question list; saved discoveries keep their cards. */
+.history-question-list{border-top:1px solid var(--line);margin-top:15px}
+.history-question-row{display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 0;border-bottom:1px solid var(--line)}
+.history-question-open{flex:1;min-width:0;padding:4px 0;background:transparent;text-align:left;font-size:calc(13px * var(--font-scale,1));font-weight:550;line-height:1.45;overflow-wrap:anywhere}
+.history-recall{flex-shrink:0;padding:10px 0 10px 8px;background:transparent;color:var(--pink);font-size:calc(10px * var(--font-scale,1));line-height:1.4;text-align:right;max-width:95px}
+.history-recall:hover,.history-question-open:hover{color:var(--pink)}
