@@ -88,6 +88,7 @@ async function answerGame(choice){
  const stopLoading=questionWait(pane,position+1===activeGame.count?'Saving your last answer…':'Loading question '+(position+2)+'…',position+1===activeGame.count?'Your results are up next.':'Your answer is being saved.');
  try{
   const data=await api(endpoint+'/answer',{method:'POST',body:{position,choice}});if(activeGame?.id!==id){gameAnswering=false;return}
+  if(!activeGame.complete&&data.game.complete)queueScoreReveal(data.game);
   activeGame=data.game;gameAnswering=false;stopLoading();
   if(!$('#gamePlay').hidden){
    renderGame();const next=$('#gamePlay .quiz-question-pane');

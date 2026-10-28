@@ -157,10 +157,17 @@ async function quizComments(request,env,game,player,body){
    await budget(env,`quiz-comments:${authorKey}:${Math.floor(Date.now()/3600000)}`,60,Date.now()+2*3600000,'A lot of chatting! Try again in a little while.');
    await env.DB.prepare('INSERT INTO quiz_comments(id,game_id,author_key,name,text,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING').bind(input.id,game.id,authorKey,player.name,text,Date.now()).run();
   }
+ }else if(request.method==='PUT'){
+  const input=await body(request),emoji=input.reaction;
+  if(emoji!==null&&!['😂','🔥','🤯','👏','😭','❤️'].includes(emoji))fail('Choose one of the quiz reactions.');
+  await budget(env,`quiz-reactions:${authorKey}:${Math.floor(Date.now()/3600000)}`,120,Date.now()+2*3600000);
+  if(emoji===null)await env.DB.prepare('DELETE FROM quiz_reactions WHERE game_id=? AND author_key=?').bind(game.id,authorKey).run();
+  else await env.DB.prepare('INSERT INTO quiz_reactions(game_id,author_key,emoji,created_at) VALUES (?,?,?,?) ON CONFLICT(game_id,author_key) DO UPDATE SET emoji=excluded.emoji,created_at=excluded.created_at').bind(game.id,authorKey,emoji,Date.now()).run();
  }else if(request.method==='DELETE'){
   const input=await body(request);if(typeof input.id!=='string')fail('Choose a comment.');
   await env.DB.prepare('DELETE FROM quiz_comments WHERE id=? AND game_id=? AND (author_key=? OR ?=1)').bind(input.id,game.id,authorKey,canModerate?1:0).run();
  }else if(request.method!=='GET')fail('Not found.',404);
  const rows=(await env.DB.prepare('SELECT * FROM quiz_comments WHERE game_id=? ORDER BY created_at DESC,id DESC LIMIT 100').bind(game.id).all()).results;
- return json({comments:rows.reverse().map(c=>({id:c.id,name:c.name,text:c.text,createdAt:c.created_at,mine:c.author_key===authorKey,canDelete:canModerate||c.author_key===authorKey}))},200,{'Cache-Control':'no-store'});
+ const reactions=(await env.DB.prepare('SELECT emoji,COUNT(*) count,MAX(CASE WHEN author_key=? THEN 1 ELSE 0 END) mine FROM quiz_reactions WHERE game_id=? GROUP BY emoji').bind(authorKey,game.id).all()).results.map(r=>({emoji:r.emoji,count:r.count,mine:!!r.mine}));
+ return json({reactions,comments:rows.reverse().map(c=>({id:c.id,name:c.name,text:c.text,createdAt:c.created_at,mine:c.author_key===authorKey,canDelete:canModerate||c.author_key===authorKey}))},200,{'Cache-Control':'no-store'});
 }

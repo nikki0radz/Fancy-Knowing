@@ -1,0 +1,1 @@
+CREATE TABLE quiz_reactions(game_id TEXT NOT NULL REFERENCES trivia_games(id),author_key TEXT NOT NULL,emoji TEXT NOT NULL CHECK(emoji IN ('😂','🔥','🤯','👏','😭','❤️')),created_at INTEGER NOT NULL,PRIMARY KEY(game_id,author_key));

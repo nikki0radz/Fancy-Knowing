@@ -1,6 +1,12 @@
 // One choice at a time. Personal drafts stay local to the signed-in account.
 let quizFlow=null,flowStep=0,flowTopicOpen=false,flowTopicChecking=false,flowTopicResult=null,flowTopicRequest=0,flowQuestionEdit=null,flowQuestionDraft=null;
-const flowRevealed=new Set();
+const flowRevealed=new Set(),pendingScoreReveals=new Set();
+function queueScoreReveal(g){
+ const key='fk-score-seen:'+(user?.id||g.players.find(p=>p.self)?.id||'guest')+':'+g.id;
+ if(flowRevealed.has(g.id))return;
+ try{if(localStorage.getItem(key))return;localStorage.setItem(key,'1')}catch{}
+ pendingScoreReveals.add(g.id);
+}
 function flowSteps(){return quizFlow?.manual?['title','questions','timer','friends','review']:quizFlow?.kind==='challenge'?['topic','difficulty','count','timer','friends','review']:['topic','difficulty','count','timer','review']}
 function persistHandmade(){if(!quizFlow?.manual||!user)return;try{localStorage.setItem('fk-handmade:'+user.id,JSON.stringify({title:quizFlow.topic,questions:quizFlow.questions,timerSeconds:quizFlow.timerSeconds,editor:flowQuestionDraft,editorIndex:flowQuestionEdit}))}catch{}}
 function closeFlowDialog(){const dialog=$('#quizSetupDialog');if(dialog.open){navigationClosing.add(dialog.id);dialog.close()}}
@@ -77,7 +83,8 @@ const originalRenderGame=renderGame;
 renderGame=function(){
  const g=activeGame;if(!g)return;
  if(g.lobby&&!g.roomClosed){renderQuizLobby(g);return}
- if(g.complete&&g.joined&&!flowRevealed.has(g.id)){renderScoreTease(g);return}
+ if(g.complete&&g.joined&&pendingScoreReveals.has(g.id)){renderScoreTease(g);return}
+ if(g.complete&&!flowRevealed.has(g.id))revealedGames.add(g.id);
  originalRenderGame();mountQuizComments(g);if($('#gamehome'))$('#gamehome').onclick=loadHome;if(g.question){if($('#roomboard'))$('#roomboard').hidden=true;const share=$('#gamePlay .compact-invite');if(share)share.hidden=true;if($('#addgamepeople'))$('#addgamepeople').hidden=true;const author=$('#gamePlay>.quiz-author');if(author)author.hidden=true}
 };
 function renderQuizLobby(g){
@@ -88,8 +95,9 @@ function renderQuizLobby(g){
  if($('#lobbyshare'))$('#lobbyshare').onclick=async()=>{try{if(navigator.share)await navigator.share({title:g.topic,url:g.inviteUrl});else{await navigator.clipboard.writeText(g.inviteUrl);$('#lobbystatus').textContent='Link copied · ready to share.'}}catch(e){if(e.name!=='AbortError')$('#lobbystatus').textContent='Try copying the link instead.'}};rememberNavigation({page:'gamePlay',id:g.id,invite:challengeInvite});
 }
 function renderScoreTease(g){
+ pendingScoreReveals.delete(g.id);flowRevealed.add(g.id);
  const challenge=g.kind==='challenge';clearInterval(quizClockTimer);$('#gamePlay').innerHTML=`<section class="score-tease ${challenge?'challenge-tease':'solo-tease'}"><span class="score-mystery" aria-hidden="true">${challenge?'🥁':'✨'}</span><p class="eyebrow">${challenge?'THE MOMENT OF TRUTH':'ALL DONE'}</p><h1>${challenge?'Confidence is one thing.<br>Let’s see the score.':'How did you get on?'}</h1><p>${g.count} ${g.count===1?'question':'questions'}. ${challenge?'One score to beat.':'A few new things to know.'}</p><div class="reveal-count" id="revealcount" aria-live="polite">?</div><button class="primary" id="revealresults">${challenge?'Drum roll… reveal my score':'Show my results'}</button></section>`;
- $('#revealresults').onclick=async e=>{e.target.disabled=true;flowRevealed.add(g.id);if(challenge&&!matchMedia('(prefers-reduced-motion:reduce)').matches){for(const n of ['3','2','1']){if(activeGame?.id!==g.id||$('#gamePlay').hidden)return;$('#revealcount').textContent=n;await new Promise(resolve=>setTimeout(resolve,450))}}if(activeGame?.id===g.id&&!$('#gamePlay').hidden)renderGame()};rememberNavigation({page:'gamePlay',id:g.id,invite:challengeInvite});
+ $('#revealresults').onclick=async e=>{e.target.disabled=true;flowRevealed.add(g.id);if(challenge&&!matchMedia('(prefers-reduced-motion:reduce)').matches){for(const n of ['3','2','1']){if(activeGame?.id!==g.id||$('#gamePlay').hidden)return;const node=$('#revealcount');if(!node)return;node.textContent=n;await new Promise(resolve=>setTimeout(resolve,450))}}if(activeGame?.id===g.id&&!$('#gamePlay').hidden)renderGame()};rememberNavigation({page:'gamePlay',id:g.id,invite:challengeInvite});
 }
 
 function freshManualQuestion(){return {q:'',format:'multiple_choice',options:['','','',''],correct:0,explanation:''}}
@@ -110,32 +118,48 @@ function bindManualQuestions(){
  $('#savemanualquestion').onclick=()=>{captureManualQuestion();const q=flowQuestionDraft;q.q=q.q.trim();q.options=q.options.map(o=>o.trim());if(q.q.length<3||q.options.some(o=>!o)||new Set(q.options.map(o=>o.toLowerCase())).size!==q.options.length){$('#flowerror').textContent='Add a question and distinct, non-empty answers.';return}if(flowQuestionEdit===null)quizFlow.questions.push(q);else quizFlow.questions[flowQuestionEdit]=q;flowQuestionDraft=null;flowQuestionEdit=null;persistHandmade();renderQuizFlow()};
  $('#cancelmanualquestion').onclick=()=>{flowQuestionDraft=null;flowQuestionEdit=null;persistHandmade();renderQuizFlow()};
 }
-function clearQuizFlow(){closeFlowDialog();quizFlow=null;flowQuestionDraft=null;flowQuestionEdit=null;flowStep=0;flowTopicRequest++;flowTopicChecking=false;flowTopicResult=null;flowRevealed.clear();quizCommentDrafts.clear()}
+function clearQuizFlow(){closeFlowDialog();quizFlow=null;flowQuestionDraft=null;flowQuestionEdit=null;flowStep=0;flowTopicRequest++;flowTopicChecking=false;flowTopicResult=null;flowRevealed.clear();pendingScoreReveals.clear();quizCommentDrafts.clear()}
 
-// Keep the discussion small and optional, below the score and question review.
-const quizCommentDrafts=new Map();
+// Reactions and a small, visible discussion preview live directly below the score.
+const quizCommentDrafts=new Map(),quizReactionChoices=[['😂','Funny'],['🔥','Loved it'],['🤯','Mind blown'],['👏','Well played'],['😭','That was tough'],['❤️','Favourite']];
 function mountQuizComments(g){
  if(!g.joined||!g.complete||$('#quizdiscussion'))return;
- const draft=quizCommentDrafts.get(g.id)||{text:'',id:crypto.randomUUID(),open:false};quizCommentDrafts.set(g.id,draft);
- const section=document.createElement('details');section.id='quizdiscussion';section.className='quiz-discussion';section.open=draft.open;
- section.innerHTML=`<summary>💬 Quiz chat <span id="quizcommentcount"></span></summary><div class="quiz-discussion-inner"><p class="smallnote">Hardest quiz ever? Almost had it? Leave a little note for the people who played. Comments are visible after finishing.</p><div id="quizcommentlist" class="quiz-comment-list" aria-label="Quiz comments"></div><form id="quizcommentform"><label for="quizcommenttext">What did you think?</label><textarea class="field" id="quizcommenttext" maxlength="500" rows="2" placeholder="I was so sure about that last one…">${esc(draft.text)}</textarea><div class="quiz-comment-actions"><small id="quizcommentremaining">${draft.text.length} / 500</small><button class="askbutton" id="sendquizcomment">Post comment</button></div></form><p id="quizcommentstatus" class="smallnote" role="status"></p></div>`;
- $('#gamePlay').append(section);const endpoint=gameEndpoint()+'/comments';section.dataset.endpoint=endpoint;
- section.ontoggle=()=>{draft.open=section.open;if(section.open)loadQuizComments(section,endpoint)};
- $('#quizcommenttext').oninput=e=>{draft.text=e.target.value;draft.id=crypto.randomUUID();$('#quizcommentremaining').textContent=draft.text.length+' / 500'};
+ const draft=quizCommentDrafts.get(g.id)||{text:'',id:crypto.randomUUID(),expanded:false};quizCommentDrafts.set(g.id,draft);
+ const section=document.createElement('section');section.id='quizdiscussion';section.className='quiz-discussion';section.setAttribute('aria-label','Quiz reactions and chat');
+ section.innerHTML=`<div class="quiz-chat-head"><div><h2>A little post-quiz chat <span aria-hidden="true">💬</span></h2><p>React, celebrate, blame that last question.</p></div><span id="quizcommentcount"></span></div><div class="quiz-reaction-row" role="group" aria-label="React to this quiz"></div><div id="quizcommentpreview" class="quiz-comment-preview ${draft.expanded?'expanded':''}"><div id="quizcommentlist" class="quiz-comment-list" aria-label="Quiz comments"><p class="smallnote">Loading the conversation…</p></div></div><button class="textbtn quiz-chat-expand" id="expandquizchat" aria-expanded="${draft.expanded}" aria-controls="quizcommentpreview" hidden>Show all comments</button><form id="quizcommentform" class="quiz-chat-compose"><label class="sr-only" for="quizcommenttext">Leave a comment</label><textarea class="field" id="quizcommenttext" maxlength="500" rows="1" placeholder="Go on, tell us what you thought…">${esc(draft.text)}</textarea><button class="askbutton" id="sendquizcomment">Post</button></form><small id="quizcommentremaining" class="quiz-comment-remaining" ${draft.text.length<400?'hidden':''}>${draft.text.length} / 500</small><p id="quizcommentstatus" class="smallnote" role="status"></p>`;
+ const hero=$('#gamePlay .quiz-result-hero');if(hero)hero.insertAdjacentElement('afterend',section);else $('#gamePlay').append(section);
+ section.dataset.endpoint=gameEndpoint()+'/comments';
+ $('#expandquizchat').onclick=()=>{draft.expanded=!draft.expanded;updateQuizChatPreview(section)};
+ $('#quizcommenttext').oninput=e=>{draft.text=e.target.value;draft.id=crypto.randomUUID();const counter=$('#quizcommentremaining');counter.textContent=draft.text.length+' / 500';counter.hidden=draft.text.length<400};
  $('#quizcommentform').onsubmit=async e=>{
-  e.preventDefault();if(draft.sending)return;const text=draft.text.trim();if(!text){$('#quizcommentstatus').textContent='Write a little something first.';return}
+  e.preventDefault();if(draft.sending||section.commentWriting)return;const text=draft.text.trim();if(!text){$('#quizcommentstatus').textContent='Write a little something first.';return}
   draft.sending=true;section.commentVersion=(section.commentVersion||0)+1;const button=$('#sendquizcomment'),input=$('#quizcommenttext'),status=$('#quizcommentstatus');button.disabled=true;input.disabled=true;status.textContent='Posting…';
-  try{const data=await api(endpoint,{method:'POST',body:{text,id:draft.id}});draft.text='';draft.id=crypto.randomUUID();if(section.isConnected){input.value='';$('#quizcommentremaining').textContent='0 / 500';renderQuizComments(section,data.comments);status.textContent='Comment posted.'}}catch(error){if(section.isConnected)status.textContent=error.message}finally{draft.sending=false;if(section.isConnected){button.disabled=false;input.disabled=false}}
+  try{const data=await api(section.dataset.endpoint,{method:'POST',body:{text,id:draft.id}});draft.text='';draft.id=crypto.randomUUID();if(section.isConnected){input.value='';$('#quizcommentremaining').hidden=true;renderQuizComments(section,data);status.textContent='Comment posted.'}}catch(error){if(section.isConnected)status.textContent=error.message}finally{draft.sending=false;if(section.isConnected){button.disabled=false;input.disabled=false}}
  };
- loadQuizComments(section,endpoint);
+ renderQuizReactions(section,[]);loadQuizComments(section,section.dataset.endpoint);
 }
 async function loadQuizComments(section,endpoint){
- if(section.commentLoading||section.commentWriting)return;section.commentLoading=true;const version=section.commentVersion||0;
- try{const data=await api(endpoint);if(section.isConnected&&version===(section.commentVersion||0))renderQuizComments(section,data.comments)}catch(error){if(section.isConnected)section.querySelector('#quizcommentstatus').textContent=error.message}finally{section.commentLoading=false}
+ if(section.commentLoading||section.commentWriting||section.querySelector('.comment-delete-confirm'))return;section.commentLoading=true;const version=section.commentVersion||0;
+ try{const data=await api(endpoint);if(section.isConnected&&version===(section.commentVersion||0))renderQuizComments(section,data)}catch(error){if(section.isConnected){section.querySelector('#quizcommentlist').textContent='Couldn’t load the conversation.';section.querySelector('#quizcommentstatus').textContent=error.message}}finally{section.commentLoading=false}
 }
-function renderQuizComments(section,comments){
- section.querySelector('#quizcommentcount').textContent=comments.length?' · '+comments.length:'';
- const list=section.querySelector('#quizcommentlist');list.innerHTML=comments.length?comments.map(c=>`<article class="quiz-comment ${c.mine?'own-comment':''}"><div class="quiz-comment-heading"><strong>${esc(c.name)}${c.mine?' (you)':''}</strong><time datetime="${new Date(c.createdAt).toISOString()}">${new Date(c.createdAt).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</time>${c.canDelete?`<button class="icon-button" data-delete-comment="${esc(c.id)}" aria-label="Delete comment by ${esc(c.name)}">${closeIcon}</button>`:''}</div><p>${esc(c.text)}</p></article>`).join(''):'<p class="smallnote">No comments yet. You can be first.</p>';
- list.querySelectorAll('[data-delete-comment]').forEach(button=>button.onclick=()=>{const id=button.dataset.deleteComment,article=button.closest('article');if(article.querySelector('.comment-delete-confirm'))return;const confirm=document.createElement('div');confirm.className='comment-delete-confirm';confirm.innerHTML='<span>Delete this comment?</span><button class="textbtn" data-confirm>Delete</button><button class="textbtn" data-cancel>Keep it</button>';article.append(confirm);confirm.querySelector('[data-cancel]').onclick=()=>confirm.remove();confirm.querySelector('[data-confirm]').onclick=async e=>{e.target.disabled=true;section.commentWriting=true;section.commentVersion=(section.commentVersion||0)+1;try{const data=await api(section.dataset.endpoint,{method:'DELETE',body:{id}});if(section.isConnected){renderQuizComments(section,data.comments);section.querySelector('#quizcommentstatus').textContent='Comment deleted.'}}catch(error){if(section.isConnected){section.querySelector('#quizcommentstatus').textContent=error.message;e.target.disabled=false}}finally{section.commentWriting=false}}});
+function renderQuizReactions(section,reactions){
+ const holder=section.querySelector('.quiz-reaction-row');holder.innerHTML=quizReactionChoices.map(([emoji,label])=>{const r=reactions.find(item=>item.emoji===emoji);return `<button type="button" data-quiz-reaction="${emoji}" aria-label="${label}${r?.count?', '+r.count+' reactions':''}" aria-pressed="${!!r?.mine}" ${section.commentWriting?'disabled':''}><span aria-hidden="true">${emoji}</span>${r?.count?`<small>${r.count}</small>`:''}</button>`}).join('');
+ holder.querySelectorAll('[data-quiz-reaction]').forEach(button=>button.onclick=async()=>{
+  if(section.commentWriting)return;section.commentWriting=true;section.commentVersion=(section.commentVersion||0)+1;holder.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{const data=await api(section.dataset.endpoint,{method:'PUT',body:{reaction:button.getAttribute('aria-pressed')==='true'?null:button.dataset.quizReaction}});if(section.isConnected){renderQuizComments(section,data);section.querySelector('#quizcommentstatus').textContent='Reaction saved.'}}catch(error){if(section.isConnected)section.querySelector('#quizcommentstatus').textContent=error.message}finally{section.commentWriting=false;if(section.isConnected)holder.querySelectorAll('button').forEach(b=>b.disabled=false)}
+ });
 }
-setInterval(()=>{const section=$('#quizdiscussion');if(section?.open&&!document.hidden&&!quizCommentDrafts.get(activeGame?.id)?.sending)loadQuizComments(section,section.dataset.endpoint)},10000);
+function updateQuizChatPreview(section){
+ if(!section.isConnected)return;const draft=quizCommentDrafts.get(activeGame?.id);if(!draft)return;
+ const preview=section.querySelector('#quizcommentpreview'),list=section.querySelector('#quizcommentlist'),button=section.querySelector('#expandquizchat');
+ preview.classList.toggle('expanded',draft.expanded);const overflow=list.scrollHeight>190;preview.classList.toggle('has-more',overflow);button.hidden=!overflow;button.textContent=draft.expanded?'Show less':'Show all comments';button.setAttribute('aria-expanded',String(draft.expanded));
+}
+function renderQuizComments(section,data){
+ const signature=JSON.stringify(data);if(section.commentSignature===signature)return;section.commentSignature=signature;
+ const comments=data.comments||[];section.querySelector('#quizcommentcount').textContent=comments.length?comments.length+' '+(comments.length===1?'comment':'comments'):'';
+ renderQuizReactions(section,data.reactions||[]);
+ const list=section.querySelector('#quizcommentlist');list.innerHTML=comments.length?[...comments].reverse().map(c=>`<article class="quiz-comment ${c.mine?'own-comment':''}"><span class="quiz-comment-avatar" aria-hidden="true">${esc((c.name||'?')[0].toUpperCase())}</span><div class="quiz-comment-body"><div class="quiz-comment-heading"><strong>${esc(c.name)}${c.mine?' (you)':''}</strong><time datetime="${new Date(c.createdAt).toISOString()}">${new Date(c.createdAt).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</time>${c.canDelete?`<button class="icon-button" data-delete-comment="${esc(c.id)}" aria-label="Delete comment by ${esc(c.name)}">${closeIcon}</button>`:''}</div><p>${esc(c.text)}</p></div></article>`).join(''):'<p class="quiz-chat-empty">No comments yet. Set the tone ✨</p>';
+ list.querySelectorAll('[data-delete-comment]').forEach(button=>button.onclick=()=>{const id=button.dataset.deleteComment,article=button.closest('.quiz-comment-body');if(article.querySelector('.comment-delete-confirm'))return;const confirm=document.createElement('div');confirm.className='comment-delete-confirm';confirm.innerHTML='<span>Delete?</span><button class="textbtn" data-confirm>Delete</button><button class="textbtn" data-cancel>Keep</button>';article.append(confirm);confirm.querySelector('[data-cancel]').onclick=()=>{confirm.remove();updateQuizChatPreview(section)};confirm.querySelector('[data-confirm]').onclick=async e=>{if(section.commentWriting)return;e.target.disabled=true;section.commentWriting=true;section.commentVersion=(section.commentVersion||0)+1;try{const result=await api(section.dataset.endpoint,{method:'DELETE',body:{id}});if(section.isConnected){renderQuizComments(section,result);section.querySelector('#quizcommentstatus').textContent='Comment deleted.'}}catch(error){if(section.isConnected){section.querySelector('#quizcommentstatus').textContent=error.message;e.target.disabled=false}}finally{section.commentWriting=false;if(section.isConnected)section.querySelectorAll('[data-quiz-reaction]').forEach(b=>b.disabled=false)}};updateQuizChatPreview(section)});
+ requestAnimationFrame(()=>updateQuizChatPreview(section));
+}
+setInterval(()=>{const section=$('#quizdiscussion');if(section&&!document.hidden&&!$('#gamePlay').hidden&&!quizCommentDrafts.get(activeGame?.id)?.sending)loadQuizComments(section,section.dataset.endpoint)},10000);
