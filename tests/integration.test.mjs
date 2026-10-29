@@ -416,6 +416,23 @@ test('quiz retries retain verified questions and replace only rejected formats',
  try{const pack=await triviaPack({DB:db,OPENAI_API_KEY:'test'},{id:'partial-new-user'},'History','medium',3,4);assert.equal(round,2);assert.equal(factChecks,2);assert.equal(senseChecks,2);assert.equal(pack.questions.length,3);assert.ok(pack.questions.some(q=>q.concept==='partial-1-0'));assert.ok(pack.questions.some(q=>q.concept==='partial-1-2'));assert.ok(!pack.questions.some(q=>q.concept==='partial-1-1'));assert.deepEqual(new Set(pack.questions.map(q=>q.format)),new Set(['multiple_choice','true_false']))}finally{globalThis.fetch=previousFetch}
 });
 
+test('niche quizzes accept reordered formats and primary-only sources, and keep filling verified partial batches',async()=>{
+ const {triviaPack}=await import('../worker/trivia.mjs'),previousFetch=globalThis.fetch;
+ try{for(const partial of [false,true]){
+  let round=0;const source='https://official.example.test/catalogue';
+  globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);
+   if(url.endsWith('/embeddings'))return embeddingResponse(body);
+   if(body.tools){if(body.instructions.startsWith('Research'))round++;return aiText('Official factual evidence.',partial?[source,triviaUrl]:[source])}
+   if(body.text?.format?.name==='trivia_pack'){const input=JSON.parse(body.input),formats=partial?input.formats:[...input.formats].reverse();return aiText({questions:formats.map((format,i)=>({format,topic:'Taylor Swift lyrics',q:`Niche fixture ${partial}-${round}-${i}?`,options:format==='true_false'?['True','False']:['First','Second','Third','Fourth'],correct:0,explanation:'The official source establishes this answer.',concept:`niche-${partial}-${round}-${i}`,subtopic:`subject-${round}-${i}`,source,triviaSource:partial?triviaUrl:source,aliases:[],follow:['When?','Where?','Why?']}))})}
+   const input=JSON.parse(body.input);return aiText({checks:input.questions.map((q,i)=>({accepted:!partial||i===0,correctAnswer:q.correctAnswer,reason:i===0?'Verified.':'Ambiguous fixture: replace it.'}))});
+  };
+  const pack=await triviaPack({DB:db,OPENAI_API_KEY:'test'},{id:'niche-fix-'+partial},'Taylor Swift lyrics','medium',5,4,{plan:['multiple_choice','true_false','multiple_choice','multiple_choice','multiple_choice']});
+  assert.equal(pack.questions.length,5);assert.equal(round,partial?5:1);assert.equal(pack.questions.filter(q=>q.format==='true_false').length,1);
+  assert.ok(pack.questions.every(q=>q.correctAnswer===q.options[q.correct]));assert.equal(new Set(pack.questions.map(q=>q.concept)).size,5);
+  if(partial)assert.deepEqual(pack.questions.map(q=>q.concept),Array.from({length:5},(_,i)=>`niche-true-${i+1}-0`),'Only independently accepted questions reach the quiz');
+ }}finally{globalThis.fetch=previousFetch}
+});
+
 test('prepared discoveries follow profile interests, consume atomically, and prepare future days',async()=>{
  const account=await call('/auth/signup',{method:'POST',ip:'192.0.2.20',body:{email:'ready@example.test',password:'x',code:'private-test-code'}}),cookie=account.cookie,id=account.data.user.id;
  await call('/profile',{method:'PUT',cookie,body:{name:'Ready',interests:['History','Chemistry'],includeEverything:false}});
