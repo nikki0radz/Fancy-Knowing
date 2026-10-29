@@ -39,18 +39,18 @@ async function approveFlowTopic(topic){
  try{
   const data=await api('/topics',{method:'POST',body:{topic:proposed}});
   if(quizFlow!==owner||request!==flowTopicRequest||flowSteps()[flowStep]!=='topic'||!flowCustomOpen||$('#gameSetup').hidden||!$('#quizSetupDialog').open)return;
-  flowTopicResult={topic:data.topic};
+  quizFlow.topic=data.topic;quizFlow.customTopic=true;flowTopicResult=null;flowTopicOpen=false;flowCustomOpen=false;flowTopicChecking=false;
+  renderQuizFlow();toast('Topic approved and selected.');$('#flownext')?.focus();
  }catch(e){if(quizFlow===owner&&request===flowTopicRequest)flowTopicResult={error:e.message}}
  finally{if(quizFlow===owner&&request===flowTopicRequest){flowTopicChecking=false;renderFlowTopicStatus()}}
 }
 function renderFlowTopicStatus(){
  const status=$('#flowtopicstatus');if(!status)return;
  status.className='flow-topic-status'+(flowTopicChecking?' checking':'');
- status.innerHTML=flowTopicChecking?'<span class="loading-orbit" aria-hidden="true"></span><span>Checking your topic…</span>':flowTopicResult?.error?`<span class="error">${esc(flowTopicResult.error)}</span>`:flowTopicResult?`<div class="flow-approved-topic"><span><small>✓ Topic approved</small><strong>${esc(flowTopicResult.topic)}</strong></span><button class="secondary-button" id="selectapprovedtopic">Select topic</button></div>`:'';
+ status.innerHTML=flowTopicChecking?'<span class="loading-orbit" aria-hidden="true"></span><span>Checking your topic…</span>':flowTopicResult?.error?`<span class="error">${esc(flowTopicResult.error)}</span>`:'';
  document.querySelectorAll('#flowtopicsearch,#flowtopicinput,[data-flow-topic],#flowmoretopics').forEach(control=>control.disabled=flowTopicChecking);
  if($('#flownext'))$('#flownext').disabled=flowTopicChecking;
  if($('#flowtopicsearch'))$('#flowtopicsearch').textContent=flowTopicChecking?'Checking…':'Search';
- if($('#selectapprovedtopic'))$('#selectapprovedtopic').onclick=()=>{quizFlow.topic=flowTopicResult.topic;quizFlow.customTopic=true;flowTopicResult=null;flowTopicOpen=false;flowCustomOpen=false;renderQuizFlow()};
 }
 
 function renderQuizFlow(error=''){
