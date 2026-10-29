@@ -2,7 +2,7 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-let mf,db;const sentEmails=[],sentPush=[];let mailFails=false,quizFails=false,backgroundDrafts=null,duplicateDrafts=null;
+let mf,db;const sentEmails=[],sentPush=[];let mailFails=false,quizFails=false,backgroundDrafts=null,duplicateDrafts=null,duplicateForever=false;const duplicateResearch=[];
 const origin='https://fancy-knowing.test';
 async function call(path,{method='GET',body,cookie,originHeader=origin,ip}={}){
  const response=await mf.dispatchFetch(origin+'/api'+path,{method,headers:{...(ip?{'CF-Connecting-IP':ip}:{}),...(body?{'Content-Type':'application/json'}:{}),...(method!=='GET'?{Origin:originHeader}:{}),...(cookie?{Cookie:cookie}:{})},body:body?JSON.stringify(body):undefined});
@@ -29,9 +29,9 @@ before(async()=>{
   if(new URL(request.url).hostname==='api.resend.com'){if(mailFails)return Response.json({error:'sender not verified'},{status:403});sentEmails.push(await request.json());return Response.json({id:crypto.randomUUID()})}
   if(new URL(request.url).hostname==='api.openai.com'){if(quizFails)return Response.json({error:'fixture unavailable'},{status:503});const body=await request.json();const verified=verificationFixture(body);if(verified)return verified;
    if(new URL(request.url).pathname.endsWith('/embeddings'))return embeddingResponse(body);
-   if(body.tools){generationCalls++;generatedNumber++;generatedTopic=JSON.parse(body.input).topic;return aiText('Fixture quiz and official factual evidence.',[triviaUrl,'https://facts.example.test/source'])}
+   if(body.tools){if(duplicateDrafts!==null)duplicateResearch.push(JSON.parse(body.input));generationCalls++;generatedNumber++;generatedTopic=JSON.parse(body.input).topic;return aiText('Fixture quiz and official factual evidence.',[triviaUrl,'https://facts.example.test/source'])}
    if(['trivia_pack_review','trivia_pack_sensecheck'].includes(body.text?.format?.name))throw Error('Extra AI review must not run.');
-   if(body.text?.format?.name==='trivia_pack'){if(backgroundDrafts!==null)backgroundDrafts++;if(duplicateDrafts!==null)duplicateDrafts++;const input=JSON.parse(body.input),count=body.text.format.schema.properties.questions.minItems;return aiText({questions:Array.from({length:count},(_,i)=>{const format=input.formats[i],size=format==='multiple_choice'?body.text.format.schema.properties.questions.items.anyOf[0].properties.options.minItems:2,options=format==='true_false'?['True','False']:Array.from({length:size},(_,n)=>`Archive specimen ${generatedNumber}-${i}-${n}`);return {format,topic:input.topicPlan?.[i]||generatedTopic,q:duplicateDrafts!==null&&duplicateDrafts>=2&&duplicateDrafts<=3?input.previous[0].question:`Which archive specimen has catalogue ${generatedNumber}-${i}?`,options,correct:0,explanation:'The archive records this specimen.',source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:`pack-${generatedNumber}-${i}`,subtopic:`archive-${i}`,aliases:backgroundDrafts!==null&&backgroundDrafts<=2&&i===4?[options[1]]:[],follow:['Where is it?','Who named it?','How old is it?']}})})}
+   if(body.text?.format?.name==='trivia_pack'){if(backgroundDrafts!==null)backgroundDrafts++;if(duplicateDrafts!==null)duplicateDrafts++;const input=JSON.parse(body.input),count=body.text.format.schema.properties.questions.minItems;return aiText({questions:Array.from({length:count},(_,i)=>{const format=input.formats[i],size=format==='multiple_choice'?body.text.format.schema.properties.questions.items.anyOf[0].properties.options.minItems:2,options=format==='true_false'?['True','False']:Array.from({length:size},(_,n)=>`Archive specimen ${generatedNumber}-${i}-${n}`);return {format,topic:input.topicPlan?.[i]||generatedTopic,q:duplicateDrafts!==null&&duplicateDrafts>=2&&(duplicateForever||duplicateDrafts<=3)?input.previous[0].question:`Which archive specimen has catalogue ${generatedNumber}-${i}?`,options,correct:0,explanation:'The archive records this specimen.',source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:`pack-${generatedNumber}-${i}`,subtopic:`archive-${i}`,aliases:backgroundDrafts!==null&&backgroundDrafts<=2&&i===4?[options[1]]:[],follow:['Where is it?','Who named it?','How old is it?']}})})}
    if(body.text?.format?.name==='trivia_quality')return aiText({accepted:true,correctAnswer:JSON.parse(body.input).candidate.correctAnswer,reason:'Clear fixture.'});
    if(body.text?.format?.name==='daily_question'){const count=body.text.format.schema.properties.options.minItems,format=body.text.format.schema.properties.format?.enum?.[0]||'multiple_choice';return aiText({format,topic:generatedTopic,q:`Which specimen has catalogue number ${generatedNumber}?`,options:format==='true_false'?['True','False']:Array.from({length:count},(_,i)=>`Specimen ${generatedNumber}-${i}`),correct:0,explanation:`It is specimen ${generatedNumber}-0.`,source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:'fixture-fact-'+generatedNumber,subtopic:'fixture-subject-'+generatedNumber,aliases:[],follow:['Where is it?','Who named it?','How old is it?']})}
    if(body.text?.format?.name==='learning_topic'){const text=JSON.parse(body.input).proposedTopic;return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(text==='asdfghjkl'?{accepted:false,topic:'',reason:'Try a recognisable topic, such as marine biology.'}:{accepted:true,topic:'Marine biology focused on sharks',reason:'A valid learning topic.'})}]}]})}
@@ -921,7 +921,7 @@ test('existing failed quiz reports reveal saved rejection reasons only to their 
 
 test('entirely duplicate batches checkpoint their rejected facts before researching replacements',async()=>{
  const a=await call('/auth/signup',{method:'POST',ip:'198.51.100.246',body:{email:'duplicate-rounds@example.test',password:'x',code:'private-test-code'}});
- duplicateDrafts=0;
+ duplicateDrafts=0;duplicateResearch.length=0;
  try{
   const started=await call('/quiz-jobs',{cookie:a.cookie,method:'POST',body:{kind:'solo',topic:'General knowledge',difficulty:'easy',count:10,lobby:true,requestId:crypto.randomUUID()}}),id=started.data.job.id;
   let game,sawRejectedRound=false;
@@ -931,6 +931,20 @@ test('entirely duplicate batches checkpoint their rejected facts before research
    if(state.pack?.attempt===3&&!sawRejectedRound){sawRejectedRound=true;assert.equal(state.pack.accepted.length,5);assert.ok(state.pack.rejected.some(r=>r.reason?.includes('matches an earlier question:')));assert.equal((await db.prepare('SELECT COUNT(*) n FROM quiz_job_calls WHERE job_id=?').bind(id).first()).n,0)}
    if(result.data.game){game=result.data.game;break}assert.notEqual(result.data.job.status,'failed',JSON.stringify(result.data));
   }
-  assert.ok(sawRejectedRound);assert.equal(duplicateDrafts,4);assert.equal(game?.count,10);assert.equal((await call('/games/quota',{cookie:a.cookie})).data.used,1);
+  assert.ok(sawRejectedRound);assert.equal(duplicateDrafts,4);assert.equal(duplicateResearch.length,4);assert.notDeepEqual(duplicateResearch[1].researchFocus,duplicateResearch[2].researchFocus);assert.ok(duplicateResearch[3].avoidFacts.some(f=>f.question&&f.answer&&f.reason.includes('earlier question')));assert.equal(game?.count,10);assert.equal((await call('/games/quota',{cookie:a.cookie})).data.used,1);
  }finally{duplicateDrafts=null}
+});
+
+
+test('persistent duplicate proposals stop after bounded changed research routes and refund the credit',async()=>{
+ const a=await call('/auth/signup',{method:'POST',ip:'198.51.100.247',body:{email:'duplicate-stall@example.test',password:'x',code:'private-test-code'}}),id=crypto.randomUUID(),now=Date.now();
+ const input={kind:'solo',topic:'General knowledge',difficulty:'easy',count:10,lobby:true,requestId:crypto.randomUUID()};
+ const state={verificationVersion:4,background:true,deadline:now+1200000,plan:Array(10).fill('multiple_choice')};
+ await db.prepare('INSERT INTO quiz_jobs(id,user_id,request_id,input,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').bind(id,a.data.user.id,input.requestId,JSON.stringify(input),JSON.stringify(state),now,now).run();
+ const ns=await mf.getDurableObjectNamespace('QUIZ_PREPARER');duplicateDrafts=0;duplicateForever=true;duplicateResearch.length=0;
+ try{
+  await ns.get(ns.idFromName(id)).fetch('https://quiz.internal/start',{method:'POST',body:JSON.stringify({id})});
+  let result;for(let i=0;i<200;i++){result=(await call('/quiz-jobs/'+id,{cookie:a.cookie})).data;if(result.job.status==='failed')break;await new Promise(resolve=>setTimeout(resolve,100))}
+  assert.equal(result.job.status,'failed');assert.equal(result.job.verified,5);assert.equal(result.job.diagnostics.rounds,7);assert.equal(duplicateDrafts,7);assert.equal(duplicateResearch.length,7);assert.equal((await call('/games/quota',{cookie:a.cookie})).data.used,0);
+ }finally{duplicateDrafts=null;duplicateForever=false;duplicateResearch.length=0}
 });

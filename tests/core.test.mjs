@@ -197,3 +197,13 @@ test('quiz research sees older relevant topic history before unrelated recent qu
  const old={q:'Who owns AFC Richmond?',topic:'Ted Lasso TV Show',concept:'Rebecca owns Richmond'};history.push(old);
  assert.equal(relevantHistory(history,'Ted Lasso TV Show')[0],old);assert.equal(relevantHistory(history,'Ted Lasso TV Show').length,100);
 });
+
+
+test('replacement research rotates distinct angles and retains unique rejected facts',async()=>{
+ const {replacementFocus,uniqueRejected}=await import('../worker/trivia.mjs');
+ const routes=Array.from({length:12},(_,i)=>replacementFocus('Ted Lasso TV Show',i,3));
+ assert.equal(new Set(routes.map(r=>r[0].angle)).size,12);assert.ok(routes.flat().every(r=>r.topic==='Ted Lasso TV Show'));
+ const fact={question:'Who says football is life?',concept:'Dani Rojas catchphrase',answer:'Dani Rojas',reason:'duplicate'};
+ const other={question:'Which stadium?',concept:'Richmond stadium',answer:'Selhurst Park',reason:'duplicate'};
+ const ledger=uniqueRejected([fact,other,...Array(30).fill(fact)]);assert.equal(ledger.length,2);assert.ok(ledger.some(r=>r.answer==='Selhurst Park'));
+});
