@@ -2,7 +2,7 @@ import test,{before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-let mf,db;const sentEmails=[],sentPush=[];let mailFails=false,quizFails=false,backgroundDrafts=null;
+let mf,db;const sentEmails=[],sentPush=[];let mailFails=false,quizFails=false,backgroundDrafts=null,duplicateDrafts=null;
 const origin='https://fancy-knowing.test';
 async function call(path,{method='GET',body,cookie,originHeader=origin,ip}={}){
  const response=await mf.dispatchFetch(origin+'/api'+path,{method,headers:{...(ip?{'CF-Connecting-IP':ip}:{}),...(body?{'Content-Type':'application/json'}:{}),...(method!=='GET'?{Origin:originHeader}:{}),...(cookie?{Cookie:cookie}:{})},body:body?JSON.stringify(body):undefined});
@@ -31,7 +31,7 @@ before(async()=>{
    if(new URL(request.url).pathname.endsWith('/embeddings'))return embeddingResponse(body);
    if(body.tools){generationCalls++;generatedNumber++;generatedTopic=JSON.parse(body.input).topic;return aiText('Fixture quiz and official factual evidence.',[triviaUrl,'https://facts.example.test/source'])}
    if(['trivia_pack_review','trivia_pack_sensecheck'].includes(body.text?.format?.name))throw Error('Extra AI review must not run.');
-   if(body.text?.format?.name==='trivia_pack'){if(backgroundDrafts!==null)backgroundDrafts++;const input=JSON.parse(body.input),count=body.text.format.schema.properties.questions.minItems;return aiText({questions:Array.from({length:count},(_,i)=>{const format=input.formats[i],size=format==='multiple_choice'?body.text.format.schema.properties.questions.items.anyOf[0].properties.options.minItems:2,options=format==='true_false'?['True','False']:Array.from({length:size},(_,n)=>`Archive specimen ${generatedNumber}-${i}-${n}`);return {format,topic:input.topicPlan?.[i]||generatedTopic,q:`Which archive specimen has catalogue ${generatedNumber}-${i}?`,options,correct:0,explanation:'The archive records this specimen.',source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:`pack-${generatedNumber}-${i}`,subtopic:`archive-${i}`,aliases:backgroundDrafts!==null&&backgroundDrafts<=2&&i===4?[options[1]]:[],follow:['Where is it?','Who named it?','How old is it?']}})})}
+   if(body.text?.format?.name==='trivia_pack'){if(backgroundDrafts!==null)backgroundDrafts++;if(duplicateDrafts!==null)duplicateDrafts++;const input=JSON.parse(body.input),count=body.text.format.schema.properties.questions.minItems;return aiText({questions:Array.from({length:count},(_,i)=>{const format=input.formats[i],size=format==='multiple_choice'?body.text.format.schema.properties.questions.items.anyOf[0].properties.options.minItems:2,options=format==='true_false'?['True','False']:Array.from({length:size},(_,n)=>`Archive specimen ${generatedNumber}-${i}-${n}`);return {format,topic:input.topicPlan?.[i]||generatedTopic,q:duplicateDrafts!==null&&duplicateDrafts>=2&&duplicateDrafts<=3?input.previous[0].question:`Which archive specimen has catalogue ${generatedNumber}-${i}?`,options,correct:0,explanation:'The archive records this specimen.',source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:`pack-${generatedNumber}-${i}`,subtopic:`archive-${i}`,aliases:backgroundDrafts!==null&&backgroundDrafts<=2&&i===4?[options[1]]:[],follow:['Where is it?','Who named it?','How old is it?']}})})}
    if(body.text?.format?.name==='trivia_quality')return aiText({accepted:true,correctAnswer:JSON.parse(body.input).candidate.correctAnswer,reason:'Clear fixture.'});
    if(body.text?.format?.name==='daily_question'){const count=body.text.format.schema.properties.options.minItems,format=body.text.format.schema.properties.format?.enum?.[0]||'multiple_choice';return aiText({format,topic:generatedTopic,q:`Which specimen has catalogue number ${generatedNumber}?`,options:format==='true_false'?['True','False']:Array.from({length:count},(_,i)=>`Specimen ${generatedNumber}-${i}`),correct:0,explanation:`It is specimen ${generatedNumber}-0.`,source:'https://facts.example.test/source',triviaSource:triviaUrl,concept:'fixture-fact-'+generatedNumber,subtopic:'fixture-subject-'+generatedNumber,aliases:[],follow:['Where is it?','Who named it?','How old is it?']})}
    if(body.text?.format?.name==='learning_topic'){const text=JSON.parse(body.input).proposedTopic;return Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(text==='asdfghjkl'?{accepted:false,topic:'',reason:'Try a recognisable topic, such as marine biology.'}:{accepted:true,topic:'Marine biology focused on sharks',reason:'A valid learning topic.'})}]}]})}
@@ -425,7 +425,7 @@ test('niche quizzes accept reordered formats and primary-only sources, and keep 
   globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);
    if(url.endsWith('/embeddings'))return embeddingResponse(body);responseCalls++;
    if(body.text?.format?.name==='trivia_pack_verification'){const input=JSON.parse(body.input);const result=await aiText({checks:input.questions.map((q,i)=>({accepted:!partial||i===0,correctAnswer:q.options[0],reason:'Verified against the official source.'}))},partial?[source]:[]).json();if(!partial)result.output.unshift({type:'web_search_call',status:'completed',action:{type:'search',sources:[{type:'url',url:source}]}});return Response.json(result)}if(body.tools){if(body.instructions.startsWith('Research'))round++;return aiText('Official factual evidence.',partial?[source,triviaUrl]:[source])}
-   if(body.text?.format?.name==='trivia_pack'){if(backgroundDrafts!==null)backgroundDrafts++;const input=JSON.parse(body.input),formats=partial?input.formats:[...input.formats].reverse();return aiText({questions:formats.map((format,i)=>({format,topic:'Taylor Swift lyrics',q:`Niche fixture ${partial}-${round}-${i}?`,options:format==='true_false'?['True','False']:['First','Second','Third','Fourth'],correct:0,explanation:'The official source establishes this answer.',concept:`niche-${partial}-${round}-${i}`,subtopic:`subject-${round}-${i}`,source,triviaSource:partial?triviaUrl:source,aliases:[],follow:['When?','Where?','Why?']}))})}
+   if(body.text?.format?.name==='trivia_pack'){if(backgroundDrafts!==null)backgroundDrafts++;if(duplicateDrafts!==null)duplicateDrafts++;const input=JSON.parse(body.input),formats=partial?input.formats:[...input.formats].reverse();return aiText({questions:formats.map((format,i)=>({format,topic:'Taylor Swift lyrics',q:`Niche fixture ${partial}-${round}-${i}?`,options:format==='true_false'?['True','False']:['First','Second','Third','Fourth'],correct:0,explanation:'The official source establishes this answer.',concept:`niche-${partial}-${round}-${i}`,subtopic:`subject-${round}-${i}`,source,triviaSource:partial?triviaUrl:source,aliases:[],follow:['When?','Where?','Why?']}))})}
    const input=JSON.parse(body.input);return aiText({checks:input.questions.map((q,i)=>({accepted:!partial||i===0,correctAnswer:q.correctAnswer,reason:i===0?'Verified.':'Ambiguous fixture: replace it.'}))});
   };
   const pack=await triviaPack({DB:db,OPENAI_API_KEY:'test'},{id:'niche-fix-'+partial},'Taylor Swift lyrics','medium',5,4,{plan:['multiple_choice','true_false','multiple_choice','multiple_choice','multiple_choice']});
@@ -916,4 +916,21 @@ test('existing failed quiz reports reveal saved rejection reasons only to their 
  assert.equal(d.verified,7);assert.equal(d.requested,10);assert.equal(d.createdAt,now-60000);assert.equal(d.finishedAt,now);assert.equal(d.rejections[0].stage,'duplicates');assert.match(d.rejections[0].reason,/0.931/);
  assert.ok(!JSON.stringify(response.data).includes('DO_NOT_EXPOSE'));assert.ok(!JSON.stringify(response.data).includes('Private intermediate candidate'));
  assert.equal((await db.prepare('SELECT COUNT(*) n FROM ai_usage').first()).n,usage,'Reading a failure report makes no AI calls');
+});
+
+
+test('entirely duplicate batches checkpoint their rejected facts before researching replacements',async()=>{
+ const a=await call('/auth/signup',{method:'POST',ip:'198.51.100.246',body:{email:'duplicate-rounds@example.test',password:'x',code:'private-test-code'}});
+ duplicateDrafts=0;
+ try{
+  const started=await call('/quiz-jobs',{cookie:a.cookie,method:'POST',body:{kind:'solo',topic:'General knowledge',difficulty:'easy',count:10,lobby:true,requestId:crypto.randomUUID()}}),id=started.data.job.id;
+  let game,sawRejectedRound=false;
+  for(let i=0;i<50;i++){
+   const result=await call('/quiz-jobs/'+id+'/advance',{cookie:a.cookie,method:'POST',body:{}});assert.equal(result.status,200,JSON.stringify(result.data));
+   const state=JSON.parse((await db.prepare('SELECT state FROM quiz_jobs WHERE id=?').bind(id).first()).state);
+   if(state.pack?.attempt===3&&!sawRejectedRound){sawRejectedRound=true;assert.equal(state.pack.accepted.length,5);assert.ok(state.pack.rejected.some(r=>r.reason?.includes('matches an earlier question:')));assert.equal((await db.prepare('SELECT COUNT(*) n FROM quiz_job_calls WHERE job_id=?').bind(id).first()).n,0)}
+   if(result.data.game){game=result.data.game;break}assert.notEqual(result.data.job.status,'failed',JSON.stringify(result.data));
+  }
+  assert.ok(sawRejectedRound);assert.equal(duplicateDrafts,4);assert.equal(game?.count,10);assert.equal((await call('/games/quota',{cookie:a.cookie})).data.used,1);
+ }finally{duplicateDrafts=null}
 });

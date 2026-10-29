@@ -189,3 +189,11 @@ test('Excel CSV imports preserve commas, quoted text, multiline cells and Ready-
  const rows=parse(csv);assert.equal(rows.length,2);assert.equal(rows[0].q,'Which bird, exactly?');assert.equal(rows[0].explanation,'A robin says "hello".\nTwo lines.');assert.equal(rows[1].enabled,false);
  assert.throws(()=>parse(header+'\nB1,"unfinished'),/unfinished/);assert.throws(()=>parse('Question,Answer\na,b'),/Missing column/);
 });
+
+
+test('quiz research sees older relevant topic history before unrelated recent questions',async()=>{
+ const {relevantHistory}=await import('../worker/trivia.mjs');
+ const history=Array.from({length:110},(_,i)=>({q:`Recent chemistry question ${i}`,topic:'Chemistry'}));
+ const old={q:'Who owns AFC Richmond?',topic:'Ted Lasso TV Show',concept:'Rebecca owns Richmond'};history.push(old);
+ assert.equal(relevantHistory(history,'Ted Lasso TV Show')[0],old);assert.equal(relevantHistory(history,'Ted Lasso TV Show').length,100);
+});

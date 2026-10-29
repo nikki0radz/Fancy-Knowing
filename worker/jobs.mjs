@@ -31,7 +31,7 @@ export async function quizJobsApi(request,env,user,body){
   const old=await env.DB.prepare('SELECT * FROM quiz_jobs WHERE user_id=? AND request_id=?').bind(user.id,input.requestId).first();if(old)return json(status(old));
   const plan=Array.from({length:input.count},(_,i)=>input.count===1?(randomInt(5)===0?'true_false':'multiple_choice'):i%5===1?'true_false':'multiple_choice');for(let i=plan.length-1;i>0;i--){const j=randomInt(i+1);[plan[i],plan[j]]=[plan[j],plan[i]]}
   if(input.background===true&&!env.QUIZ_PREPARER)fail('Background quiz preparation is not deployed yet. Please refresh in a moment.',503);
-  const id=crypto.randomUUID(),now=Date.now(),state={verificationVersion:2,plan,day:localDay(),label:'Checking your quiz setup…',...(input.background===true?{background:true,deadline:now+20*60000}:{})};
+  const id=crypto.randomUUID(),now=Date.now(),state={verificationVersion:3,plan,day:localDay(),label:'Checking your quiz setup…',...(input.background===true?{background:true,deadline:now+20*60000}:{})};
   await env.DB.prepare("INSERT INTO quiz_jobs(id,user_id,request_id,input,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT DO NOTHING").bind(id,user.id,input.requestId,JSON.stringify(input),JSON.stringify(state),now,now).run();
   const saved=await env.DB.prepare("SELECT * FROM quiz_jobs WHERE user_id=? AND status='preparing'").bind(user.id).first();if(JSON.parse(saved.state).background)await wakeQuizJob(env,saved.id);return json(status(saved));
  }
@@ -43,7 +43,7 @@ export async function quizJobsApi(request,env,user,body){
  if(JSON.parse(row.state).background&&!env.QUIZ_JOB_RUNNER){await wakeQuizJob(env,row.id);return json(status(row))}
  const lockKey='quiz-job:'+row.id,now=Date.now(),lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(lockKey,now+300000,now).first();if(!lock)return json({...status(row),busy:true});
  // Keep verified batches, but restart an unfinished old review sequence after deployment.
- const migrated=JSON.parse(row.state);if(migrated.verificationVersion!==2){migrated.verificationVersion=2;if(migrated.pack)migrated.pack.nextCallIndex=migrated.completedCalls||0;else migrated.callStart=migrated.completedCalls||0;await env.DB.batch([env.DB.prepare('DELETE FROM quiz_job_calls WHERE job_id=?').bind(row.id),env.DB.prepare('UPDATE quiz_jobs SET state=? WHERE id=?').bind(JSON.stringify(migrated),row.id)]);row.state=JSON.stringify(migrated)}
+ const migrated=JSON.parse(row.state);if(migrated.verificationVersion!==3){migrated.verificationVersion=3;if(migrated.pack)migrated.pack.nextCallIndex=migrated.completedCalls||0;else migrated.callStart=migrated.completedCalls||0;await env.DB.batch([env.DB.prepare('DELETE FROM quiz_job_calls WHERE job_id=?').bind(row.id),env.DB.prepare('UPDATE quiz_jobs SET state=? WHERE id=?').bind(JSON.stringify(migrated),row.id)]);row.state=JSON.stringify(migrated)}
  const cachedCalls=(await env.DB.prepare('SELECT position,kind,request_hash,data FROM quiz_job_calls WHERE job_id=?').bind(row.id).all()).results;
  const state=JSON.parse(row.state),job={id:row.id,state,callIndex:JSON.parse(row.state).pack?.nextCallIndex||JSON.parse(row.state).callStart||0,paused:false,calls:new Map(cachedCalls.map(c=>[c.position,c]))},aiEnv={...env,AI_JOB:job,AI_USAGE_USER_ID:user.id,AI_USAGE_ACTION:'quiz',AI_USAGE_OPERATION:row.request_id};
  try{
