@@ -12,7 +12,11 @@ export async function expireQuizJobs(env,userId=null){
  for(const row of rows){const state=JSON.parse(row.state),commands=[];if(state.quotaReserved)commands.push(env.DB.prepare("UPDATE budgets SET count=MAX(0,count-1) WHERE key=? AND EXISTS(SELECT 1 FROM quiz_jobs WHERE id=? AND status='preparing')").bind(state.quotaKey,row.id));commands.push(env.DB.prepare("UPDATE quiz_jobs SET status='failed',error=?,updated_at=? WHERE id=? AND status='preparing'").bind('This preparation expired. Start a fresh quiz; its reserved credit has been returned.',Date.now(),row.id));await env.DB.batch(commands)}
  await env.DB.prepare("DELETE FROM quiz_jobs WHERE status<>'preparing' AND updated_at<?").bind(Date.now()-DAY).run();
 }
-function status(row){const state=JSON.parse(row.state);return {job:{id:row.id,status:row.status,setup:JSON.parse(row.input),label:state.label||'Getting your quiz ready…',completedCalls:state.completedCalls||0,verified:state.pack?.accepted?.length||0,background:!!state.background,error:row.error||null}}}
+function status(row){
+ const state=JSON.parse(row.state),input=JSON.parse(row.input),saved=state.diagnostics;
+ const rejections=(saved?.rejections||state.pack?.rejected||[]).slice(-10).map(item=>typeof item==='string'?{reason:item}:{question:String(item.question||item.q||'').slice(0,500),reason:String(item.reason||'No reason was saved.').slice(0,500),stage:typeof item.stage==='string'?item.stage:undefined});
+ return {job:{id:row.id,status:row.status,setup:input,label:state.label||'Getting your quiz ready…',completedCalls:state.completedCalls||0,verified:state.pack?.accepted?.length||0,background:!!state.background,error:row.error||null,...(row.status==='failed'?{diagnostics:{createdAt:row.created_at,finishedAt:row.updated_at,requested:input.count,verified:saved?.verified??state.pack?.accepted?.length??0,completedCalls:state.completedCalls||0,background:!!state.background,verificationVersion:state.verificationVersion||1,rounds:saved?.rounds??state.pack?.attempt??0,remainingFormats:state.pack?.pendingFormats||[],rejections}}:{})}};
+}
 export async function quizJobsApi(request,env,user,body){
  const path=new URL(request.url).pathname;await expireQuizJobs(env,user.id);
  if(path==='/api/quiz-jobs'&&request.method==='GET'){const row=await env.DB.prepare("SELECT * FROM quiz_jobs WHERE user_id=? AND status='preparing' ORDER BY created_at DESC LIMIT 1").bind(user.id).first();return json(row?status(row):{job:null})}
@@ -54,6 +58,7 @@ export async function quizJobsApi(request,env,user,body){
  }catch(e){
   if(e.quizPaused)return json(status({...row,state:JSON.stringify(state)}));
   if(state.background&&!e.quizPermanent&&e.quizRetryable!==false&&e.status>=500&&(state.transientErrors||0)<6&&Date.now()<state.deadline){state.transientErrors=(state.transientErrors||0)+1;state.retryAt=Date.now()+Math.min(60000,5000*2**(state.transientErrors-1));state.label='The AI needs a moment. Your verified questions are safe; retrying…';await env.DB.prepare('UPDATE quiz_jobs SET state=?,updated_at=? WHERE id=?').bind(JSON.stringify(state),Date.now(),row.id).run();return json(status({...row,state:JSON.stringify(state)}))}
+  if(e.quizDiagnostics)state.diagnostics=e.quizDiagnostics;
   const commands=[];if(state.quotaReserved)commands.push(env.DB.prepare('UPDATE budgets SET count=MAX(0,count-1) WHERE key=?').bind(state.quotaKey));state.quotaReserved=false;
   const message=e.status?e.message:'Quiz preparation stopped unexpectedly. Your reserved credit has been returned. Please try again.';
   commands.push(env.DB.prepare("UPDATE quiz_jobs SET status='failed',state=?,error=?,updated_at=? WHERE id=?").bind(JSON.stringify(state),message,Date.now(),row.id));if(state.background)commands.push(notice(env,user.id,'quiz_failed','Your quiz needs another go 🤖',message,'quiz_job',row.id,'quiz-failed:'+row.id));await env.DB.batch(commands);if(!e.status)console.error('Quiz job failed',{id:row.id,error:String(e.message).slice(0,300)});return json(status({...row,status:'failed',state:JSON.stringify(state),error:message}));

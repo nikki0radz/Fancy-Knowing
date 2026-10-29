@@ -903,3 +903,17 @@ test('running quizzes switch away from old review checkpoints while preserving v
  assert.equal(game?.count,10);const questions=(await db.prepare('SELECT q.data FROM trivia_game_questions t JOIN questions q ON q.id=t.question_id WHERE t.game_id=?').bind(game.id).all()).results.map(q=>JSON.parse(q.data));assert.ok(kept.every(concept=>questions.some(q=>q.concept===concept)));
  assert.equal((await call('/games/quota',{cookie})).data.used,1);
 });
+
+test('existing failed quiz reports reveal saved rejection reasons only to their owner without generating questions',async()=>{
+ const signup=async(email,ip)=>call('/auth/signup',{method:'POST',ip,body:{email,password:'x',code:'private-test-code'}});
+ const a=await signup('report-owner@example.test','198.51.100.244'),b=await signup('report-outsider@example.test','198.51.100.245'),id=crypto.randomUUID(),now=Date.now();
+ const input={kind:'solo',topic:'Shark species',difficulty:'medium',count:10,requestId:crypto.randomUUID()};
+ const state={completedCalls:24,privateInternalValue:'DO_NOT_EXPOSE',pack:{accepted:Array.from({length:7},()=>({q:'Private intermediate candidate'})),rejected:[{question:'A rejected candidate?',reason:'Similarity score 0.931 against an earlier question.',stage:'duplicates'}]}};
+ await db.prepare("INSERT INTO quiz_jobs(id,user_id,request_id,input,state,status,error,created_at,updated_at) VALUES (?,?,?,?,?,'failed',?,?,?)").bind(id,a.data.user.id,input.requestId,JSON.stringify(input),JSON.stringify(state),'We verified 7 of 10 questions.',now-60000,now).run();
+ const usage=(await db.prepare('SELECT COUNT(*) n FROM ai_usage').first()).n;
+ assert.equal((await call('/quiz-jobs/'+id,{cookie:b.cookie})).status,404);
+ const response=await call('/quiz-jobs/'+id,{cookie:a.cookie}),d=response.data.job.diagnostics;
+ assert.equal(d.verified,7);assert.equal(d.requested,10);assert.equal(d.createdAt,now-60000);assert.equal(d.finishedAt,now);assert.equal(d.rejections[0].stage,'duplicates');assert.match(d.rejections[0].reason,/0.931/);
+ assert.ok(!JSON.stringify(response.data).includes('DO_NOT_EXPOSE'));assert.ok(!JSON.stringify(response.data).includes('Private intermediate candidate'));
+ assert.equal((await db.prepare('SELECT COUNT(*) n FROM ai_usage').first()).n,usage,'Reading a failure report makes no AI calls');
+});
