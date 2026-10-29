@@ -119,3 +119,4 @@
 .flow-launch-review .flow-step-actions .primary{display:block;width:100%;margin-top:23px}
 .flow-launch-note{text-align:center;font-size:calc(11px * var(--font-scale,1));color:var(--muted);line-height:1.6;margin:12px 0 0}
 @media(max-width:360px){.flow-launch-review h1{font-size:calc(27px * var(--font-scale,1))}.flow-launch-topic{font-size:calc(24px * var(--font-scale,1))}.flow-launch-grid>div{padding:13px 10px}}
+.quiz-background-card{text-align:center}.quiz-background-card .express-status{justify-content:center;min-height:3em}.quiz-background-card .intro{margin:0 0 18px}.quiz-background-card .primary{margin-top:24px}.quiz-background-card .express-note{margin-top:18px}

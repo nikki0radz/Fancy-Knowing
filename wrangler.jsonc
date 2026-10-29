@@ -4,12 +4,44 @@
   "main": "worker/index.mjs",
   "compatibility_date": "2026-10-26",
   "workers_dev": true,
-  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
-  "vars": { "OPENAI_MODEL": "gpt-4.1-mini", "QUIZ_LIMITS_ENABLED": "true", "QUIZ_DAILY_LIMIT": "5", "APP_URL": "https://fancy-knowing.nikki0radz.workers.dev" },
-  "d1_databases": [{
-    "binding": "DB", "database_name": "fancy-knowing-db",
-    "database_id": "f2b9470b-8ca7-4f75-9493-3ac2bfc3bf8b",
-    "migrations_dir": "migrations"
-  }],
-  "triggers": { "crons": ["*/5 * * * *"] }
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": {
+    "OPENAI_MODEL": "gpt-4.1-mini",
+    "QUIZ_LIMITS_ENABLED": "true",
+    "QUIZ_DAILY_LIMIT": "5",
+    "APP_URL": "https://fancy-knowing.nikki0radz.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fancy-knowing-db",
+      "database_id": "f2b9470b-8ca7-4f75-9493-3ac2bfc3bf8b",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "QUIZ_PREPARER",
+        "class_name": "QuizPreparationWorker"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "quiz-preparer-v1",
+      "new_sqlite_classes": [
+        "QuizPreparationWorker"
+      ]
+    }
+  ]
 }

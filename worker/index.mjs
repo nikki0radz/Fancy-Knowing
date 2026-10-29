@@ -1,4 +1,5 @@
-import {quizJobsApi,expireQuizJobs} from './jobs.mjs';
+export {QuizPreparationWorker} from './quiz-background.mjs';
+import {quizJobsApi,expireQuizJobs,recoverBackgroundQuizzes} from './jobs.mjs';
 import {bankApi,bankSubjects} from './bank.mjs';
 import {accountApi} from './account.mjs';
 import {allowanceApi} from './admin.mjs';
@@ -41,7 +42,7 @@ async function databaseStatus(env){
 }
 async function api(request,env,ctx){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',welcomeTemplate:'field-guide-v1',database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env),...await databaseStatus(env)});
+ if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',welcomeTemplate:'field-guide-v1',backgroundQuizzes:!!env.QUIZ_PREPARER,database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env),...await databaseStatus(env)});
  if(!env.DB)fail('The DB database binding is missing in Cloudflare.',503);
  if(!['GET','POST','PUT','DELETE'].includes(method))fail('Method not allowed.',405);
  if(method!=='GET'){
@@ -198,6 +199,7 @@ export default {
  async scheduled(event,env,ctx){
   ctx.waitUntil((async()=>{
    if(!env.DB)return;
+   await recoverBackgroundQuizzes(env);
    await expireQuizJobs(env);
    await deliverPushOutbox(env);
    await deliverPendingWelcomes(env);

@@ -122,7 +122,7 @@ export async function gamesApi(request,env,user,body){
     commands.push(env.DB.prepare('INSERT INTO trivia_game_questions(game_id,position,question_id) VALUES (?,?,?)').bind(id,index,qid));
    }
    await env.DB.batch(commands);created=true;const game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(id).first();if(group&&friendIds.length)await inviteFriends(env,game,user,friendIds);return json({game:await summary(env,game,await playerFor(env,id,user,null),url.origin,user?.id,JSON.parse(user?.settings||'{}').units||'metric')});
-  }finally{try{if((reserved||env.AI_JOB?.state.quotaReserved)&&!created&&!env.AI_JOB?.paused){await env.DB.prepare('UPDATE budgets SET count=MAX(0,count-1) WHERE key=?').bind(quotaKey).run();if(env.AI_JOB)env.AI_JOB.state.quotaReserved=false}}finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}}
+  }finally{try{if((reserved||env.AI_JOB?.state.quotaReserved)&&!created&&!env.AI_JOB?.paused&&!env.AI_JOB?.state.background){await env.DB.prepare('UPDATE budgets SET count=MAX(0,count-1) WHERE key=?').bind(quotaKey).run();if(env.AI_JOB)env.AI_JOB.state.quotaReserved=false}}finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}}
  }
  const match=path.match(/^\/api\/games\/([a-f0-9-]{36})(?:\/(start|answer|verdict|share|invite|close|reopen|comments))?$/);if(match){
   let game=await env.DB.prepare('SELECT * FROM trivia_games WHERE id=?').bind(match[1]).first();if(!game)fail('Quiz not found.',404);let player=await playerFor(env,game.id,user,null);if(!player&&game.invitee_id!==user.id&&!await env.DB.prepare('SELECT user_id FROM quiz_invitations WHERE game_id=? AND user_id=?').bind(game.id,user.id).first())fail('This is a private game.',403);
