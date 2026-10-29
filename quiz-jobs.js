@@ -2,8 +2,9 @@ function pendingQuizPreparation(){try{return user?JSON.parse(localStorage.getIte
 function saveQuizPreparation(owner,value){try{if(value)localStorage.setItem('fk-quiz-preparing:'+owner,JSON.stringify(value));else localStorage.removeItem('fk-quiz-preparing:'+owner)}catch{}}
 function updateQuizPreparation(label,body){
  if($('#gameSetup').hidden)return;
- if(body)$('#gameSetup').innerHTML=expressLoading(body);
- const target=$('#gameSetup .express-status');if(target){target.innerHTML='<span class="express-spinner" aria-hidden="true"></span><span></span>';target.querySelector('span:last-child').textContent=label}
+ const current=$('#gameSetup .express-loading'),setupKey=body?JSON.stringify(body):null;
+ if(body&&(!current||current.dataset.setup!==setupKey)){$('#gameSetup').innerHTML=expressLoading(body);$('#gameSetup .express-loading').dataset.setup=setupKey}
+ const target=$('#gameSetup .express-status span:last-child');if(target)target.textContent=label;
  const note=$('#gameSetup .express-note');if(note)note.textContent='Progress is saved between steps. If the connection stops, you can resume from Home.';
 }
 async function prepareQuizInSteps(body,owner,resume=null){

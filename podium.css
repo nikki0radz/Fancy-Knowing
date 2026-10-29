@@ -133,3 +133,22 @@ header .brand{font-size:24px;gap:8px}header .brand .bulb-logo{width:44px;height:
 #home .dashboard-actions #homequiz .dashboard-action-bubble{width:49px;height:49px;font-size:32px;margin-bottom:0}
 #home .dashboard-actions .dashboard-action-bubble{margin-bottom:0}
 #home .dashboard-actions #homequiz strong,#home .dashboard-actions>button:not(#homequiz) strong{font-size:calc(13px * var(--font-scale,1));letter-spacing:0;line-height:1.4;min-height:3.9em;display:flex;align-items:center;justify-content:center}
+/* Playroom Original: personal welcome, rounded raised cards and profile in chrome. */
+body:has(#home:not([hidden])) #headerprofile{display:inline-grid;width:43px;height:43px;min-width:43px;place-items:center;border:2px solid var(--accent);background:var(--panel)}
+#home .playroom-welcome{display:block;text-align:left;background:transparent;border:0;padding:4px 0 0;margin:0 0 25px;width:100%}
+#home .playroom-welcome .home-greeting{font-size:calc(35px * var(--font-scale,1));letter-spacing:-1.2px;line-height:1.13;margin:0 0 13px;overflow-wrap:anywhere}
+#home .playroom-welcome p{font-size:calc(14px * var(--font-scale,1));line-height:1.6;color:var(--muted);margin:0;max-width:310px}
+#home .home-profile-divider{margin:0 0 25px}
+#home .dashboard-actions{gap:10px;margin:17px 3px 27px 0}
+#home .dashboard-actions>button,#home .dashboard-actions #homequiz{border:1.5px solid color-mix(in srgb,var(--accent) 65%,var(--line));border-radius:24px;box-shadow:3px 4px 0 color-mix(in srgb,var(--accent) 65%,var(--line));background:var(--input);min-height:148px;padding:18px 6px 14px;gap:15px}
+#home .dashboard-actions .dashboard-action-bubble,#home .dashboard-actions #homequiz .dashboard-action-bubble,#home .dashboard-actions>button:nth-child(2) .dashboard-action-bubble,#home .dashboard-actions>button:nth-child(3) .dashboard-action-bubble{width:52px;height:52px;border-radius:50%;background:var(--panel);font-size:32px;display:grid;place-items:center}
+#home .dashboard-actions #homequiz strong,#home .dashboard-actions>button:not(#homequiz) strong{font-size:calc(12px * var(--font-scale,1));line-height:1.45;min-height:3.5em}
+#home .dashboard-actions>button:active{transform:translate(2px,2px);box-shadow:1px 2px 0 var(--accent)}
+/* Indeterminate activity, rather than an invented percentage or completion state. */
+.express-route span{position:relative;border-top:0;overflow:hidden;padding-top:13px}
+.express-route span::before,.express-route span::after{content:'';position:absolute;left:0;right:0;top:0;height:3px;border-radius:3px;background:var(--line)}
+.express-route span::after{background:var(--accent);transform-origin:left;animation:express-route-sweep 1.8s ease-in-out infinite}
+.express-route span:nth-child(2)::after{animation-delay:.25s}.express-route span:nth-child(3)::after{animation-delay:.5s}
+@keyframes express-route-sweep{0%,100%{transform:scaleX(.12);opacity:.35}50%{transform:scaleX(1);opacity:1}}
+@media(prefers-reduced-motion:reduce){.express-route span::after{animation:none;transform:scaleX(.5);opacity:1}}
+@media(max-width:370px){body:has(#home:not([hidden])) header .brand{font-size:18px;gap:5px}body:has(#home:not([hidden])) header .header-actions{gap:5px!important}#home .playroom-welcome .home-greeting{font-size:calc(31px * var(--font-scale,1))}#home .dashboard-actions{gap:8px}#home .dashboard-actions #homequiz strong,#home .dashboard-actions>button:not(#homequiz) strong{font-size:calc(11px * var(--font-scale,1))}}
