@@ -1,5 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+test('backlog pause blocks every paid AI endpoint before cache, database or network work',async t=>{
+ const {openai}=await import('../worker/ai.mjs'),{embed}=await import('../worker/memory.mjs');
+ const outbound=t.mock.method(globalThis,'fetch',()=>{throw Error('Unexpected paid request')});
+ const DB={prepare(){throw Error('Unexpected database work')}};
+ for(const AI_PAUSED of [true,'true'])for(const AI_JOB of [undefined,{}]){
+  const env={AI_PAUSED,AI_JOB,DB,OPENAI_API_KEY:'test-key'};
+  for(const call of [()=>openai(env,{}),()=>embed(env,['test'])])await assert.rejects(call,e=>e.status===503&&e.quizRetryable===false&&/paused/.test(e.message));
+ }
+ assert.equal(outbound.mock.callCount(),0);
+});
+
+test('backlog pause leaves scheduled and durable preparation idle without deleting saved jobs',async()=>{
+ const worker=(await import('../worker/index.mjs')).default;
+ const {prepareReady}=await import('../worker/ready.mjs');
+ const {wakeQuizJob,recoverBackgroundQuizzes}=await import('../worker/jobs.mjs');
+ const {QuizPreparationWorker}=await import('../worker/quiz-background.mjs');
+ const env={AI_PAUSED:'true',OPENAI_API_KEY:'test-key',DB:{prepare(){throw Error('Unexpected preparation')}},QUIZ_PREPARER:{idFromName(){throw Error('Unexpected wake')}}};
+ await worker.scheduled({},env,{waitUntil(){throw Error('Unexpected scheduled task')}});
+ assert.deepEqual(await prepareReady(env,{}),{paused:true,prepared:0});
+ await wakeQuizJob(env,'unused');await recoverBackgroundQuizzes(env);
+ let cancelled=0;
+ const runner=new QuizPreparationWorker({storage:{async deleteAlarm(){cancelled++},async deleteAll(){throw Error('Saved job must survive')}}},env);
+ await runner.alarm();
+ const response=await runner.fetch(new Request('https://quiz.internal/start',{method:'POST',body:'{}'}));
+ assert.equal(response.status,503);assert.equal(cancelled,2);
+ const health=await worker.fetch(new Request('https://app.test/api/health'),{AI_PAUSED:'true',OPENAI_API_KEY:'test-key',QUIZ_PREPARER:{}},{});
+ const status=await health.json();assert.equal(status.ai,false);assert.equal(status.aiPaused,true);assert.equal(status.backgroundQuizzes,false);
+});
+
+test('AI can be deliberately resumed while automatic scheduling remains off',async t=>{
+ const {openai}=await import('../worker/ai.mjs');
+ const outbound=t.mock.method(globalThis,'fetch',async()=>Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'Ready'}]}]}));
+ await openai({AI_PAUSED:'false',OPENAI_API_KEY:'test-key'},{});
+ assert.equal(outbound.mock.callCount(),1);
+ const {readFile}=await import('node:fs/promises');
+ const config=JSON.parse(await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8'));
+ assert.equal(config.vars.AI_PAUSED,'true');assert.deepEqual(config.triggers.crons,[]);
+});
 import { normalize,grade,passwordHash,equal,validateSettings,validateQuestion,citations,localDay } from '../worker/core.mjs';
 test('typed answers allow aliases and accents, not unrelated guesses',()=>{
  const q={options:['Oganesson','Uranium','Osmium','Plutonium'],correct:0,aliases:['Og']};

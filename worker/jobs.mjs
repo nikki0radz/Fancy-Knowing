@@ -7,6 +7,7 @@ import {loadMemory} from './memory.mjs';
 import {approveTopic} from './profiles.mjs';
 import {randomInt} from './quiz.mjs';
 import {notice} from './admin.mjs';
+import {aiPaused,requireAI} from './ai-control.mjs';
 export async function expireQuizJobs(env,userId=null){
  const rows=(await env.DB.prepare("SELECT id,user_id,state FROM quiz_jobs WHERE status='preparing' AND updated_at<?"+(userId?' AND user_id=?':'')).bind(Date.now()-30*60000,...(userId?[userId]:[])).all()).results;
  for(const row of rows){const state=JSON.parse(row.state),commands=[];if(state.quotaReserved)commands.push(env.DB.prepare("UPDATE budgets SET count=MAX(0,count-1) WHERE key=? AND EXISTS(SELECT 1 FROM quiz_jobs WHERE id=? AND status='preparing')").bind(state.quotaKey,row.id));commands.push(env.DB.prepare("UPDATE quiz_jobs SET status='failed',error=?,updated_at=? WHERE id=? AND status='preparing'").bind('This preparation expired. Start a fresh quiz; its reserved credit has been returned.',Date.now(),row.id));await env.DB.batch(commands)}
@@ -26,6 +27,7 @@ export async function quizJobsApi(request,env,user,body){
   await validateFriendIds(env,user,input.friendIds||[]);validateSettings({timerSeconds:input.timerSeconds??0});if(input.kind==='challenge'&&input.questions===undefined&&input.count<2)fail('Choose at least two questions for a challenge.');
   const previous=await env.DB.prepare('SELECT id FROM trivia_games WHERE creator_id=? AND request_id=?').bind(user.id,input.requestId).first();
   if(input.questions!==undefined||previous||await bankPack(env,user,input.topic,input.difficulty,input.count))return gamesApi(new Request(new URL('/api/games',request.url),{method:'POST'}),env,user,async()=>input);
+  requireAI(env);
   const active=await env.DB.prepare("SELECT * FROM quiz_jobs WHERE user_id=? AND status='preparing'").bind(user.id).first();if(active){if(JSON.parse(active.state).background)await wakeQuizJob(env,active.id);return json(status(active))}
   const allowance=await quizAllowance(env,user);if(allowance.limited&&allowance.remaining===0)fail('You’re out of AI quiz credits for today. Ask Nicole for more, or try a question-bank subject.',429);
   const old=await env.DB.prepare('SELECT * FROM quiz_jobs WHERE user_id=? AND request_id=?').bind(user.id,input.requestId).first();if(old)return json(status(old));
@@ -40,6 +42,7 @@ export async function quizJobsApi(request,env,user,body){
  if(row.status==='ready'){const response=await gamesApi(new Request(new URL('/api/games/'+row.game_id,request.url)),env,user,body);return response}
  if(request.method==='GET'&&!match[2]||row.status==='failed')return json(status(row));
  if(request.method!=='POST'||match[2]!=='advance')fail('Not found.',404);
+ requireAI(env);
  if(JSON.parse(row.state).background&&!env.QUIZ_JOB_RUNNER){await wakeQuizJob(env,row.id);return json(status(row))}
  const lockKey='quiz-job:'+row.id,now=Date.now(),lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(lockKey,now+300000,now).first();if(!lock)return json({...status(row),busy:true});
  // Keep verified batches, but restart an unfinished old review sequence after deployment.
@@ -65,5 +68,5 @@ export async function quizJobsApi(request,env,user,body){
  }finally{await env.DB.prepare('DELETE FROM locks WHERE key=?').bind(lockKey).run()}
 }
 
-export async function wakeQuizJob(env,id){if(!env.QUIZ_PREPARER)return;const response=await env.QUIZ_PREPARER.get(env.QUIZ_PREPARER.idFromName(id)).fetch('https://quiz.internal/start',{method:'POST',body:JSON.stringify({id})});if(!response.ok)throw new Error('Could not schedule quiz preparation.')}
-export async function recoverBackgroundQuizzes(env){if(!env.QUIZ_PREPARER)return;const rows=(await env.DB.prepare("SELECT id FROM quiz_jobs WHERE status='preparing' AND json_extract(state,'$.background')=1 ORDER BY updated_at LIMIT 20").all()).results;for(const row of rows)await wakeQuizJob(env,row.id)}
+export async function wakeQuizJob(env,id){if(aiPaused(env)||!env.QUIZ_PREPARER)return;const response=await env.QUIZ_PREPARER.get(env.QUIZ_PREPARER.idFromName(id)).fetch('https://quiz.internal/start',{method:'POST',body:JSON.stringify({id})});if(!response.ok)throw new Error('Could not schedule quiz preparation.')}
+export async function recoverBackgroundQuizzes(env){if(aiPaused(env)||!env.QUIZ_PREPARER)return;const rows=(await env.DB.prepare("SELECT id FROM quiz_jobs WHERE status='preparing' AND json_extract(state,'$.background')=1 ORDER BY updated_at LIMIT 20").all()).results;for(const row of rows)await wakeQuizJob(env,row.id)}

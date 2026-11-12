@@ -139,3 +139,9 @@ AI quiz preparation runs in a SQLite-backed `QuizPreparationWorker` Durable Obje
 Verified questions, answer vectors, remaining formats and call positions are checkpointed after each checked batch. Only missing questions are researched again. Transient service failures retry with backoff, keeping the same single credit reservation. Background Responses calls allow 180 seconds, memory calls 90 seconds. Jobs allow up to 20 minutes, 120 completed external calls, and bounded replacement rounds rather than unlimited paid retries. Failed jobs release their reserved app credit; upstream API usage can still incur costs. Inactive jobs expire after 30 minutes, and terminal job records are removed after a day.
 
 Completion creates a deduplicated private in-app notification linking to the ready lobby. Failure also creates a notification. The existing encrypted push outbox sends these under the `quizReady` preference when phone alerts and a device subscription are enabled. Each batch now has one web-backed factual verification that returns the checked answers directly. The two additional AI review passes have been removed; structural answer-key validation and duplicate detection remain. No unchecked answer is served to hide a generation failure.
+
+## Backlog pause (12 November 2026)
+
+Fancy Knowing is on hold. Production sets `AI_PAUSED` to `"true"` and has no scheduled cron triggers. The pause blocks both OpenAI Responses (including web research) and embeddings, stops reserve/daily preparation, and prevents background quiz alarms from starting or rescheduling. Existing questions, accounts, and saved work stay in place. `/api/health` reports `aiPaused: true`, `ai: false`, and `backgroundQuizzes: false`.
+
+To resume deliberately, set `AI_PAUSED` to `"false"` in `wrangler.jsonc` and redeploy. Restore `triggers.crons` to `["*/5 * * * *"]` only if automatic five-minute preparation is wanted again. Do not restore the cron merely to enable user-triggered AI.

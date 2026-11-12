@@ -4,6 +4,7 @@ import {budget} from './ai.mjs';
 import {triviaPack} from './trivia.mjs';
 import {chooseSubject} from './discoveries.mjs';
 import {EMBEDDING_MODEL} from './memory.mjs';
+import {aiPaused} from './ai-control.mjs';
 export async function profileKey(user){const p=JSON.parse(user.profile||'{}');return hash(JSON.stringify({topics:p.interests||[],everything:p.includeEverything!==false,choices:4}))}
 export async function readyCount(env,user){return (await env.DB.prepare('SELECT COUNT(*) n FROM discovery_queue WHERE user_id=? AND profile_key=? AND consumed_at IS NULL').bind(user.id,await profileKey(user)).first()).n}
 export async function nextReady(env,user){
@@ -12,6 +13,7 @@ export async function nextReady(env,user){
 }
 export async function preparedDaily(env,user,day,slot){return env.DB.prepare('SELECT q.* FROM daily_ready r JOIN questions q ON q.id=r.question_id WHERE r.user_id=? AND r.day=? AND r.slot=? AND r.profile_key=?').bind(user.id,day,slot,await profileKey(user)).first()}
 export async function prepareReady(env,user){
+ if(aiPaused(env))return {paused:true,prepared:0};
  env={...env,AI_USAGE_USER_ID:user.id,AI_USAGE_ACTION:'prepared_discoveries',AI_USAGE_OPERATION:crypto.randomUUID()};
  const now=Date.now(),key='prepare:'+user.id,lock=await env.DB.prepare('INSERT INTO locks(key,expires_at) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET expires_at=excluded.expires_at WHERE expires_at<? RETURNING key').bind(key,now+600000,now).first();if(!lock)return {readyCount:await readyCount(env,user),preparing:true};
  try{

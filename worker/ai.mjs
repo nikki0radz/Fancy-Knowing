@@ -1,11 +1,12 @@
 import {quizJobCall} from './ai-job-cache.mjs';
 import {recordAIUsage} from './usage.mjs';
+import {requireAI} from './ai-control.mjs';
 import { fail, responseText, citations, validateQuestion, hash, normalize, DAY, localDay, validateAnswerKey } from './core.mjs';
 import {shuffleAnswers,validateFormat,metricQuestion} from './quiz.mjs';
 import {embed,loadMemory,memoryText,nearQuestions,repeatedFact,briefMemory,EMBEDDING_MODEL} from './memory.mjs';
 export async function openai(env, body) {
+ requireAI(env);
  if(env.AI_JOB)return quizJobCall(env,'responses',body,()=>openai({...env,AI_JOB:null},body));
- if(!env.OPENAI_API_KEY) fail('The AI key has not been added to Cloudflare yet.',503);
  let response;
  try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:env.OPENAI_MODEL||'gpt-4.1-mini',store:false,...body}),signal:AbortSignal.timeout(env.AI_REQUEST_TIMEOUT||55000)}); }
  catch { await recordAIUsage(env,{model:body.model||env.OPENAI_MODEL||'gpt-4.1-mini',endpoint:'responses',status:0});const error=new Error('The AI took too long to reply.');error.status=504;error.quizRetryable=true;throw error; }

@@ -1,13 +1,14 @@
 import {quizJobCall} from './ai-job-cache.mjs';
 import {recordAIUsage} from './usage.mjs';
+import {requireAI} from './ai-control.mjs';
 import {fail,normalize} from './core.mjs';
 export const EMBEDDING_MODEL='text-embedding-3-small';
 export const EMBEDDING_SIZE=256;
 export function memoryText(q){return `${q.q}\nAnswer: ${q.options[q.correct]}\nFact: ${q.concept}\nSubject: ${q.subtopic||q.topic}`}
 export function cosine(a,b){if(a.length!==b.length)return 0;let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i]}return aa&&bb?dot/Math.sqrt(aa*bb):0}
 export async function embed(env,texts){
+ requireAI(env);
  if(env.AI_JOB)return quizJobCall(env,'embeddings',{texts},()=>embed({...env,AI_JOB:null},texts));
- if(!env.OPENAI_API_KEY)fail('The AI key has not been added to Cloudflare yet.',503);
  let response;try{response=await fetch('https://api.openai.com/v1/embeddings',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:EMBEDDING_MODEL,dimensions:EMBEDDING_SIZE,input:texts,encoding_format:'float'}),signal:AbortSignal.timeout(env.AI_REQUEST_TIMEOUT?90000:30000)})}catch{await recordAIUsage(env,{model:EMBEDDING_MODEL,endpoint:'embeddings',status:0});fail('The question memory check took too long. Try again.',504)}
  if(!response.ok){await recordAIUsage(env,{model:EMBEDDING_MODEL,endpoint:'embeddings',status:response.status});fail('The question memory connection needs checking. Try again shortly.',502)}
  const data=await response.json(),items=data.data;await recordAIUsage(env,{data,model:data.model||EMBEDDING_MODEL,endpoint:'embeddings',status:response.status,requestId:response.headers.get('x-request-id')||undefined});

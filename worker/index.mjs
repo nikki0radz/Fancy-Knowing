@@ -6,6 +6,7 @@ import {allowanceApi} from './admin.mjs';
 import {pushApi,deliverPushOutbox} from './push.mjs';
 import { fail, hash, DAY, randomToken, validateSettings, validateNotificationWindow, notificationTimes, localDay, grade } from './core.mjs';
 import { budget, chatReply } from './ai.mjs';
+import {aiPaused} from './ai-control.mjs';
 import { json, sessionCookie, tokenFrom, userFor, publicUser, signin, forgotPassword, resetPassword, requestEmailChange, confirmEmail, mailReady } from './auth.mjs';
 import {assignDiscovery,assignedQuestion,daySlots} from './discoveries.mjs';
 import {readyCount,nextReady,prepareReady} from './ready.mjs';
@@ -42,7 +43,7 @@ async function databaseStatus(env){
 }
 async function api(request,env,ctx){
  const url=new URL(request.url),path=url.pathname,method=request.method;
- if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',welcomeTemplate:'field-guide-v1',backgroundQuizzes:!!env.QUIZ_PREPARER,database:!!env.DB,ai:!!env.OPENAI_API_KEY,accounts:!!env.SIGNUP_CODE,email:mailReady(env),...await databaseStatus(env)});
+ if(method==='GET'&&path==='/api/health')return json({app:'fancy-knowing',version:'0.4.1',welcomeTemplate:'field-guide-v1',backgroundQuizzes:!aiPaused(env)&&!!env.QUIZ_PREPARER,database:!!env.DB,ai:!aiPaused(env)&&!!env.OPENAI_API_KEY,aiPaused:aiPaused(env),accounts:!!env.SIGNUP_CODE,email:mailReady(env),...await databaseStatus(env)});
  if(!env.DB)fail('The DB database binding is missing in Cloudflare.',503);
  if(!['GET','POST','PUT','DELETE'].includes(method))fail('Method not allowed.',405);
  if(method!=='GET'){
@@ -197,6 +198,7 @@ export default {
   }catch(e){const status=e.status||500;if(status>=500)console.error('Fancy Knowing request failed',status,e.status?e.message:'Unexpected server error');return json({error:e.status?e.message:'Something went wrong. Please try again.'},status,status===503?{'Retry-After':'15'}:{})}
  },
  async scheduled(event,env,ctx){
+  if(aiPaused(env))return;
   ctx.waitUntil((async()=>{
    if(!env.DB)return;
    await recoverBackgroundQuizzes(env);
